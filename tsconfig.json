@@ -1,0 +1,33 @@
+{
+  "extends": "@tsconfig/react-native",
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": ["ES2019", "ES2020.Promise", "ES2020.BigInt", "ES2020.String", "DOM"],
+    "jsx": "react-native",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "allowJs": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@models/*": ["models/*"],
+      "@database/*": ["database/*"],
+      "@repositories/*": ["repositories/*"],
+      "@services/*": ["services/*"],
+      "@screens/*": ["screens/*"],
+      "@components/*": ["components/*"],
+      "@navigation/*": ["navigation/*"],
+      "@utils/*": ["utils/*"],
+      "@constants/*": ["constants/*"]
+    }
+  },
+  "include": ["src/**/*", "index.js"],
+  "exclude": ["node_modules", "babel.config.js", "metro.config.js", "jest.config.js"]
+}
