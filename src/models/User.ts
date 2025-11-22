@@ -5,8 +5,9 @@ export interface User {
   uid: string;
   email: string;
   displayName?: string;
+  firmName?: string;
+  gstin?: string;
   phoneNumber?: string;
-  businessName?: string;
   createdAt: string;
   lastSyncedAt?: string;
 }

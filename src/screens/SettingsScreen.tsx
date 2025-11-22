@@ -157,10 +157,16 @@ export const SettingsScreen: React.FC<any> = ({navigation}) => {
             <Text style={styles.label}>Email:</Text>
             <Text style={styles.value}>{user?.email}</Text>
           </View>
-          {user?.businessName && (
+          {user?.firmName && (
             <View style={styles.profileRow}>
-              <Text style={styles.label}>Business:</Text>
-              <Text style={styles.value}>{user.businessName}</Text>
+              <Text style={styles.label}>Firm Name:</Text>
+              <Text style={styles.value}>{user.firmName}</Text>
+            </View>
+          )}
+          {user?.gstin && (
+            <View style={styles.profileRow}>
+              <Text style={styles.label}>GSTIN:</Text>
+              <Text style={styles.value}>{user.gstin}</Text>
             </View>
           )}
           {user?.phoneNumber && (

@@ -1,4 +1,5 @@
 import auth, {FirebaseAuthTypes} from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {User} from '../models/User';
 
@@ -10,13 +11,31 @@ class AuthService {
   private currentUser: User | null = null;
 
   /**
+   * Check if GSTIN already exists
+   */
+  async checkGSTINExists(gstin: string): Promise<boolean> {
+    try {
+      const snapshot = await firestore()
+        .collection('gstins')
+        .doc(gstin)
+        .get();
+      return snapshot.exists();
+    } catch (error) {
+      console.error('Error checking GSTIN:', error);
+      return false;
+    }
+  }
+
+  /**
    * Sign up with email and password
    */
   async signUp(
     email: string,
     password: string,
     displayName?: string,
-    businessName?: string,
+    firmName?: string,
+    gstin?: string,
+    phoneNumber?: string,
   ): Promise<User> {
     try {
       const userCredential = await auth().createUserWithEmailAndPassword(email, password);
@@ -30,9 +49,37 @@ class AuthService {
         uid: userCredential.user.uid,
         email: userCredential.user.email || email,
         displayName: displayName || userCredential.user.displayName || undefined,
-        businessName,
+        firmName,
+        gstin,
+        phoneNumber,
         createdAt: new Date().toISOString(),
       };
+
+      // Store GSTIN in Firestore to prevent duplicates
+      if (gstin) {
+        await firestore()
+          .collection('gstins')
+          .doc(gstin)
+          .set({
+            uid: userCredential.user.uid,
+            email: email,
+            firmName: firmName,
+            createdAt: new Date().toISOString(),
+          });
+      }
+
+      // Store user profile in Firestore
+      await firestore()
+        .collection('users')
+        .doc(userCredential.user.uid)
+        .set({
+          email: user.email,
+          displayName: user.displayName,
+          firmName: user.firmName,
+          gstin: user.gstin,
+          phoneNumber: user.phoneNumber,
+          createdAt: user.createdAt,
+        });
 
       await this.saveUserLocally(user);
       this.currentUser = user;

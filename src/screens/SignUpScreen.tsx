@@ -19,12 +19,13 @@ import AuthService from '../services/AuthService';
  */
 export const SignUpScreen: React.FC<any> = ({navigation}) => {
   const [formData, setFormData] = useState({
+    displayName: '',
+    firmName: '',
+    gstin: '',
     email: '',
+    phoneNumber: '',
     password: '',
     confirmPassword: '',
-    displayName: '',
-    businessName: '',
-    phoneNumber: '',
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{[key: string]: string}>({});
@@ -36,33 +37,69 @@ export const SignUpScreen: React.FC<any> = ({navigation}) => {
     }
   };
 
+  const validateGSTIN = (gstin: string): boolean => {
+    // GSTIN format: 2 digits (state code) + 10 alphanumeric (PAN) + 1 digit (entity number) + 1 letter (Z) + 1 alphanumeric (checksum)
+    // Example: 27AAPFU0939F1ZV
+    const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    return gstinRegex.test(gstin.toUpperCase());
+  };
+
+  const validateEmail = (email: string): boolean => {
+    // Comprehensive email validation
+    const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailRegex.test(email);
+  };
+
   const validate = (): boolean => {
     const newErrors: {[key: string]: string} = {};
 
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
+    // Full Name validation
+    if (!formData.displayName.trim()) {
+      newErrors.displayName = 'Full Name is required';
+    } else if (formData.displayName.trim().length < 2) {
+      newErrors.displayName = 'Name must be at least 2 characters';
     }
 
+    // Firm Name validation
+    if (!formData.firmName.trim()) {
+      newErrors.firmName = 'Firm Name is required';
+    } else if (formData.firmName.trim().length < 2) {
+      newErrors.firmName = 'Firm Name must be at least 2 characters';
+    }
+
+    // GSTIN validation
+    if (!formData.gstin.trim()) {
+      newErrors.gstin = 'GSTIN Number is required';
+    } else if (!validateGSTIN(formData.gstin)) {
+      newErrors.gstin = 'Invalid GSTIN format (e.g., 27AAPFU0939F1ZV)';
+    }
+
+    // Email validation
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+
+    // Phone validation
+    if (!formData.phoneNumber.trim()) {
+      newErrors.phoneNumber = 'Phone number is required';
+    } else if (!/^[6-9]\d{9}$/.test(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Enter valid 10-digit Indian mobile number';
+    }
+
+    // Password validation
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (formData.password.length < 6) {
       newErrors.password = 'Password must be at least 6 characters';
     }
 
+    // Confirm password validation
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    if (!formData.displayName) {
-      newErrors.displayName = 'Name is required';
-    }
-
-    if (formData.phoneNumber && !/^\d{10}$/.test(formData.phoneNumber)) {
-      newErrors.phoneNumber = 'Phone number must be 10 digits';
     }
 
     setErrors(newErrors);
@@ -74,11 +111,22 @@ export const SignUpScreen: React.FC<any> = ({navigation}) => {
 
     setLoading(true);
     try {
+      // Check if GSTIN already exists
+      const gstinExists = await AuthService.checkGSTINExists(formData.gstin.toUpperCase());
+      if (gstinExists) {
+        Alert.alert('Registration Failed', 'This GSTIN number is already registered. Each GSTIN can only be used once.');
+        setErrors({gstin: 'GSTIN already registered'});
+        setLoading(false);
+        return;
+      }
+
       await AuthService.signUp(
-        formData.email,
+        formData.email.trim().toLowerCase(),
         formData.password,
-        formData.displayName,
-        formData.businessName || undefined,
+        formData.displayName.trim(),
+        formData.firmName.trim(),
+        formData.gstin.toUpperCase(),
+        formData.phoneNumber.trim(),
       );
       Alert.alert('Success', 'Account created successfully!', [
         {text: 'OK', onPress: () => navigation.replace('Main')},
@@ -112,27 +160,38 @@ export const SignUpScreen: React.FC<any> = ({navigation}) => {
           />
 
           <CustomInput
-            label="Business Name"
-            value={formData.businessName}
-            onChangeText={value => updateField('businessName', value)}
-            placeholder="Enter your business name (optional)"
+            label="Firm Name *"
+            value={formData.firmName}
+            onChangeText={value => updateField('firmName', value)}
+            placeholder="Enter your firm/business name"
+            error={errors.firmName}
+          />
+
+          <CustomInput
+            label="GSTIN Number *"
+            value={formData.gstin}
+            onChangeText={value => updateField('gstin', value.toUpperCase())}
+            placeholder="27AAPFU0939F1ZV"
+            autoCapitalize="characters"
+            maxLength={15}
+            error={errors.gstin}
           />
 
           <CustomInput
             label="Email *"
             value={formData.email}
-            onChangeText={value => updateField('email', value)}
-            placeholder="Enter your email"
+            onChangeText={value => updateField('email', value.toLowerCase())}
+            placeholder="your@email.com"
             keyboardType="email-address"
             autoCapitalize="none"
             error={errors.email}
           />
 
           <CustomInput
-            label="Phone Number"
+            label="Phone Number *"
             value={formData.phoneNumber}
             onChangeText={value => updateField('phoneNumber', value)}
-            placeholder="Enter 10-digit phone number (optional)"
+            placeholder="10-digit mobile number"
             keyboardType="phone-pad"
             maxLength={10}
             error={errors.phoneNumber}
