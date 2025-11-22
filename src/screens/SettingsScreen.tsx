@@ -210,8 +210,9 @@ export const SettingsScreen: React.FC<any> = ({navigation}) => {
           />
 
           <Text style={styles.helpText}>
-            Sync keeps your data updated across devices. Backup uploads all
-            data to cloud. Restore downloads cloud data to this device.
+            ✓ Instant Sync Enabled: All transactions automatically backup to
+            cloud. Use "Sync Now" to ensure everything is up-to-date. "Restore"
+            downloads cloud data to this device.
           </Text>
         </View>
       </View>
@@ -306,6 +307,18 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: Spacing.sm,
+  },
+  instantSyncBadge: {
+    backgroundColor: Colors.success,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.md,
+    alignItems: 'center',
+  },
+  instantSyncText: {
+    ...Typography.body2,
+    color: Colors.textLight,
+    fontWeight: '600',
   },
   helpText: {
     ...Typography.caption,

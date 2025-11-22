@@ -12,8 +12,8 @@ A comprehensive Grain Trading Mobile Application built with React Native, TypeSc
 
 ### Key Capabilities
 - ✅ **Multi-User Support**: Each user has their own secure account
-- ✅ **Cloud Backup**: Automatic sync across devices with Firebase
-- ✅ **Offline-first SQLite database**: Works without internet
+- ✅ **Instant Cloud Backup**: Transactions automatically upload to Firebase immediately
+- ✅ **Offline-first SQLite database**: Works without internet, syncs when connected
 - ✅ **Payment status tracking**: Pending, Partial, Completed
 - ✅ **Comprehensive dashboard**: Financial summary at a glance
 - ✅ **Real-time calculations**: Pending payments and profit/loss
@@ -223,21 +223,24 @@ src/
 5. Save transaction
 
 ### Cloud Backup & Sync
-**Manual Sync**
-1. Go to Settings tab
-2. Click "Sync Now" to synchronize data
-3. View last sync timestamp
 
-**Backup to Cloud**
-1. Settings → "Backup to Cloud"
-2. All local data uploaded to Firebase
+**Instant Upload (Automatic)**
+- All transactions automatically backup to Firebase immediately
+- No manual action required
+- Works in background without blocking UI
+- Data safe even if device is lost
+
+**Manual Sync (Optional)**
+1. Go to Settings tab
+2. Click "Sync Now" to ensure full sync
+3. View last sync timestamp
 
 **Restore from Cloud** (New Device)
 1. Sign in to your account
 2. Settings → "Restore from Cloud"
 3. All cloud data downloaded to device
 
-See [MULTI_USER_CLOUD_BACKUP.md](./MULTI_USER_CLOUD_BACKUP.md) for detailed guide.
+See [INSTANT_UPLOAD.md](./INSTANT_UPLOAD.md) and [MULTI_USER_CLOUD_BACKUP.md](./MULTI_USER_CLOUD_BACKUP.md) for detailed guides.
 
 ## 🎨 Customization
 

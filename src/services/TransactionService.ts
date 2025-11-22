@@ -11,6 +11,8 @@ import {SellTransactionRepository} from '../repositories/SellTransactionReposito
 import {LendTransactionRepository} from '../repositories/LendTransactionRepository';
 import {ExpenseTransactionRepository} from '../repositories/ExpenseTransactionRepository';
 import DatabaseService from '../database/DatabaseService';
+import CloudBackupService from './CloudBackupService';
+import AuthService from './AuthService';
 
 /**
  * Transaction Service Interface
@@ -49,12 +51,59 @@ export class TransactionService implements ITransactionService {
   }
 
   /**
+   * Auto-sync transaction to Firebase (non-blocking)
+   * Runs in background without blocking UI
+   */
+  private async autoSyncToCloud(transaction: Transaction): Promise<void> {
+    try {
+      const user = await AuthService.getCurrentUser();
+      if (!user) {
+        // User not logged in, skip cloud sync
+        console.log('Auto-sync skipped: User not authenticated');
+        return;
+      }
+
+      // Upload single transaction to cloud (non-blocking)
+      await CloudBackupService.uploadSingleTransaction(transaction, user.uid);
+      console.log(`Auto-synced transaction ${transaction.id} to cloud`);
+    } catch (error) {
+      // Silently fail - transaction is already saved locally
+      console.error('Auto-sync failed (transaction safe in local DB):', error);
+    }
+  }
+
+  /**
+   * Auto-delete transaction from Firebase (non-blocking)
+   * Runs in background without blocking UI
+   */
+  private async autoDeleteFromCloud(transactionId: string): Promise<void> {
+    try {
+      const user = await AuthService.getCurrentUser();
+      if (!user) {
+        // User not logged in, skip cloud delete
+        console.log('Auto-delete skipped: User not authenticated');
+        return;
+      }
+
+      // Delete single transaction from cloud (non-blocking)
+      await CloudBackupService.deleteSingleTransaction(transactionId, user.uid);
+      console.log(`Auto-deleted transaction ${transactionId} from cloud`);
+    } catch (error) {
+      // Silently fail - transaction is already deleted locally
+      console.error('Auto-delete failed (transaction removed from local DB):', error);
+    }
+  }
+
+  /**
    * Buy Transaction Operations
    */
   public async createBuyTransaction(
     data: Omit<BuyTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<BuyTransaction> {
-    return await this.buyRepository.create(data);
+    const transaction = await this.buyRepository.create(data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async getBuyTransaction(id: string): Promise<BuyTransaction | null> {
@@ -69,11 +118,19 @@ export class TransactionService implements ITransactionService {
     id: string,
     data: Partial<BuyTransaction>,
   ): Promise<BuyTransaction> {
-    return await this.buyRepository.update(id, data);
+    const transaction = await this.buyRepository.update(id, data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async deleteBuyTransaction(id: string): Promise<boolean> {
-    return await this.buyRepository.delete(id);
+    const result = await this.buyRepository.delete(id);
+    if (result) {
+      // Delete from cloud (non-blocking)
+      this.autoDeleteFromCloud(id).catch(console.error);
+    }
+    return result;
   }
 
   public async getPendingBuyTransactions(): Promise<BuyTransaction[]> {
@@ -90,7 +147,10 @@ export class TransactionService implements ITransactionService {
   public async createSellTransaction(
     data: Omit<SellTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<SellTransaction> {
-    return await this.sellRepository.create(data);
+    const transaction = await this.sellRepository.create(data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async getSellTransaction(id: string): Promise<SellTransaction | null> {
@@ -105,11 +165,19 @@ export class TransactionService implements ITransactionService {
     id: string,
     data: Partial<SellTransaction>,
   ): Promise<SellTransaction> {
-    return await this.sellRepository.update(id, data);
+    const transaction = await this.sellRepository.update(id, data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async deleteSellTransaction(id: string): Promise<boolean> {
-    return await this.sellRepository.delete(id);
+    const result = await this.sellRepository.delete(id);
+    if (result) {
+      // Delete from cloud (non-blocking)
+      this.autoDeleteFromCloud(id).catch(console.error);
+    }
+    return result;
   }
 
   public async getPendingSellTransactions(): Promise<SellTransaction[]> {
@@ -126,7 +194,10 @@ export class TransactionService implements ITransactionService {
   public async createLendTransaction(
     data: Omit<LendTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<LendTransaction> {
-    return await this.lendRepository.create(data);
+    const transaction = await this.lendRepository.create(data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async getLendTransaction(id: string): Promise<LendTransaction | null> {
@@ -141,11 +212,19 @@ export class TransactionService implements ITransactionService {
     id: string,
     data: Partial<LendTransaction>,
   ): Promise<LendTransaction> {
-    return await this.lendRepository.update(id, data);
+    const transaction = await this.lendRepository.update(id, data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async deleteLendTransaction(id: string): Promise<boolean> {
-    return await this.lendRepository.delete(id);
+    const result = await this.lendRepository.delete(id);
+    if (result) {
+      // Delete from cloud (non-blocking)
+      this.autoDeleteFromCloud(id).catch(console.error);
+    }
+    return result;
   }
 
   public async getPendingLendTransactions(): Promise<LendTransaction[]> {
@@ -162,7 +241,10 @@ export class TransactionService implements ITransactionService {
   public async createExpenseTransaction(
     data: Omit<ExpenseTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<ExpenseTransaction> {
-    return await this.expenseRepository.create(data);
+    const transaction = await this.expenseRepository.create(data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async getExpenseTransaction(id: string): Promise<ExpenseTransaction | null> {
@@ -177,11 +259,19 @@ export class TransactionService implements ITransactionService {
     id: string,
     data: Partial<ExpenseTransaction>,
   ): Promise<ExpenseTransaction> {
-    return await this.expenseRepository.update(id, data);
+    const transaction = await this.expenseRepository.update(id, data);
+    // Auto-sync to cloud (non-blocking)
+    this.autoSyncToCloud(transaction).catch(console.error);
+    return transaction;
   }
 
   public async deleteExpenseTransaction(id: string): Promise<boolean> {
-    return await this.expenseRepository.delete(id);
+    const result = await this.expenseRepository.delete(id);
+    if (result) {
+      // Delete from cloud (non-blocking)
+      this.autoDeleteFromCloud(id).catch(console.error);
+    }
+    return result;
   }
 
   public async getExpenseTransactionsByCategory(

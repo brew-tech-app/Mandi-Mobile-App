@@ -14,6 +14,54 @@ class CloudBackupService {
   private readonly LAST_SYNC_KEY = 'last_sync_timestamp';
 
   /**
+   * Upload single transaction to cloud (for instant sync)
+   */
+  async uploadSingleTransaction(transaction: Transaction, userId: string): Promise<void> {
+    try {
+      const docRef = firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('transactions')
+        .doc(transaction.id);
+
+      const cloudTransaction: CloudTransaction = {
+        localId: transaction.id,
+        userId: userId,
+        transactionType: transaction.transactionType,
+        data: transaction,
+        syncStatus: SyncStatus.SYNCED,
+        createdAt: transaction.createdAt,
+        updatedAt: transaction.updatedAt,
+        syncedAt: new Date().toISOString(),
+      };
+
+      await docRef.set(cloudTransaction, {merge: true});
+      console.log(`Uploaded transaction ${transaction.id} to cloud`);
+    } catch (error) {
+      console.error('Failed to upload transaction to cloud:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete single transaction from cloud
+   */
+  async deleteSingleTransaction(transactionId: string, userId: string): Promise<void> {
+    try {
+      await firestore()
+        .collection('users')
+        .doc(userId)
+        .collection('transactions')
+        .doc(transactionId)
+        .delete();
+      console.log(`Deleted transaction ${transactionId} from cloud`);
+    } catch (error) {
+      console.error('Failed to delete transaction from cloud:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Upload all local transactions to cloud
    */
   async backupToCloud(): Promise<void> {
