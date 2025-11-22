@@ -11,14 +11,15 @@ A comprehensive Grain Trading Mobile Application built with React Native, TypeSc
 - **Expense Transactions**: Record business expenses across categories
 
 ### Key Capabilities
-- ✅ Offline-first SQLite database
-- ✅ Payment status tracking (Pending, Partial, Completed)
-- ✅ Comprehensive dashboard with financial summary
-- ✅ Real-time calculation of pending payments
-- ✅ Profit/Loss tracking
-- ✅ Supplier/Buyer management
-- ✅ Category-wise expense tracking
-- ✅ Transaction history and search
+- ✅ **Multi-User Support**: Each user has their own secure account
+- ✅ **Cloud Backup**: Automatic sync across devices with Firebase
+- ✅ **Offline-first SQLite database**: Works without internet
+- ✅ **Payment status tracking**: Pending, Partial, Completed
+- ✅ **Comprehensive dashboard**: Financial summary at a glance
+- ✅ **Real-time calculations**: Pending payments and profit/loss
+- ✅ **Supplier/Buyer management**: Track business relationships
+- ✅ **Category-wise expense tracking**: Organized expense management
+- ✅ **Transaction history**: Complete audit trail with search
 
 ## 🏗️ Architecture
 
@@ -52,7 +53,8 @@ This application follows **SOLID principles** for maintainable and scalable code
 ```
 src/
 ├── models/              # Data models and interfaces
-│   └── Transaction.ts   # Transaction types and schemas
+│   ├── Transaction.ts   # Transaction types and schemas
+│   └── User.ts         # User and cloud sync models
 ├── database/            # Database layer
 │   ├── DatabaseService.ts    # SQLite connection management
 │   └── BaseRepository.ts     # Base repository pattern
@@ -62,15 +64,21 @@ src/
 │   ├── LendTransactionRepository.ts
 │   └── ExpenseTransactionRepository.ts
 ├── services/            # Business logic layer
-│   └── TransactionService.ts
+│   ├── TransactionService.ts    # Transaction operations
+│   ├── AuthService.ts          # Firebase authentication
+│   └── CloudBackupService.ts   # Cloud sync operations
 ├── screens/             # UI screens
 │   ├── DashboardScreen.tsx
-│   └── BuyTransactionsScreen.tsx
+│   ├── BuyTransactionsScreen.tsx
+│   ├── LoginScreen.tsx
+│   ├── SignUpScreen.tsx
+│   └── SettingsScreen.tsx
 ├── components/          # Reusable UI components
 │   ├── TransactionCard.tsx
 │   ├── SummaryCard.tsx
 │   ├── CustomInput.tsx
-│   └── CustomButton.tsx
+│   ├── CustomButton.tsx
+│   └── FloatingActionButton.tsx
 ├── navigation/          # Navigation configuration
 │   └── AppNavigator.tsx
 ├── constants/           # App constants
@@ -108,6 +116,7 @@ src/
 - Node.js (v16 or higher)
 - React Native development environment
 - Xcode (for iOS) or Android Studio (for Android)
+- Firebase account (for cloud backup features)
 
 ### Installation
 
@@ -129,28 +138,61 @@ src/
    cd ..
    ```
 
-4. **Start Metro bundler**
+4. **Set up Firebase** (Required for multi-user and cloud backup)
+   - Follow the detailed guide in [FIREBASE_SETUP.md](./FIREBASE_SETUP.md)
+   - Create Firebase project
+   - Enable Authentication and Firestore
+   - Download config files (google-services.json, GoogleService-Info.plist)
+   - Configure Android and iOS apps
+
+5. **Start Metro bundler**
    ```bash
    npm start
    ```
 
-5. **Run on iOS**
+6. **Run on iOS**
    ```bash
    npm run ios
    ```
 
-6. **Run on Android**
+7. **Run on Android**
    ```bash
    npm run android
    ```
 
+### First Time Setup
+
+1. Launch the app
+2. Click "Sign Up" to create an account
+3. Fill in your details (name, email, password)
+4. Start recording transactions
+5. Go to Settings → "Sync Now" to backup data to cloud
+
 ## 📱 Usage
+
+### Authentication
+**Sign Up (First Time)**
+1. Launch the app
+2. Click "Sign Up"
+3. Enter your details:
+   - Full Name (required)
+   - Business Name (optional)
+   - Email (required)
+   - Phone Number (optional)
+   - Password (min 6 characters)
+4. Click "Sign Up" to create account
+
+**Sign In (Returning User)**
+1. Enter your email and password
+2. Click "Sign In"
+3. Use "Forgot Password?" if needed
 
 ### Dashboard
 - View financial summary (Buy, Sell, Lend, Expense totals)
 - Check net profit/loss
 - Monitor pending payments
 - See recent transactions
+- Use Floating Action Button (+) to quickly add transactions
 
 ### Buy Transactions
 1. Navigate to "Buy" tab
@@ -179,6 +221,23 @@ src/
 3. Enter expense details and amount
 4. Choose payment mode
 5. Save transaction
+
+### Cloud Backup & Sync
+**Manual Sync**
+1. Go to Settings tab
+2. Click "Sync Now" to synchronize data
+3. View last sync timestamp
+
+**Backup to Cloud**
+1. Settings → "Backup to Cloud"
+2. All local data uploaded to Firebase
+
+**Restore from Cloud** (New Device)
+1. Sign in to your account
+2. Settings → "Restore from Cloud"
+3. All cloud data downloaded to device
+
+See [MULTI_USER_CLOUD_BACKUP.md](./MULTI_USER_CLOUD_BACKUP.md) for detailed guide.
 
 ## 🎨 Customization
 
@@ -237,10 +296,13 @@ npm test -- --coverage
 
 ## 🔒 Data Security
 
-- All data stored locally in SQLite database
-- No external API calls (offline-first)
-- Device storage encryption recommended
-- Regular database backups advised
+- **Local Storage**: All data stored in SQLite database on device
+- **Cloud Backup**: Encrypted data stored in Firebase Firestore
+- **User Isolation**: Each user's data is completely private
+- **Firebase Authentication**: Secure email/password authentication
+- **Firestore Security Rules**: Server-side data access control
+- **Offline-First**: Works without internet, syncs when available
+- **No Third-Party Access**: Your data stays between you and Firebase
 
 ## 🤝 Contributing
 
@@ -267,22 +329,32 @@ This project is licensed under the MIT License.
 
 ## 🗺️ Roadmap
 
-### Phase 1 (Current)
+### Phase 1 (Completed ✅)
 - ✅ Basic transaction management
 - ✅ SQLite database setup
 - ✅ Dashboard with summary
+- ✅ Floating Action Button for quick transactions
+- ✅ Multi-user authentication
+- ✅ Cloud backup with Firebase
+- ✅ Two-way data synchronization
 
-### Phase 2 (Upcoming)
+### Phase 2 (Current)
+- [ ] Transaction form screens (Buy, Sell, Lend, Expense)
 - [ ] Advanced search and filters
+- [ ] Transaction editing and deletion
+- [ ] Automatic sync on app launch
+
+### Phase 3 (Upcoming)
 - [ ] Export reports (PDF/Excel)
 - [ ] Multi-language support
 - [ ] Dark mode
+- [ ] Real-time sync across devices
 
-### Phase 3 (Future)
-- [ ] Cloud sync (optional)
-- [ ] User authentication
-- [ ] Multi-user support
-- [ ] Advanced analytics
+### Phase 4 (Future)
+- [ ] Biometric authentication
+- [ ] Shared business accounts (team collaboration)
+- [ ] Advanced analytics and insights
+- [ ] Integration with accounting software
 
 ---
 
