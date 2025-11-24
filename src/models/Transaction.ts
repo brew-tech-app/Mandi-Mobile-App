@@ -47,6 +47,8 @@ export interface BuyTransaction extends BaseTransaction {
   paymentStatus: PaymentStatus;
   vehicleNumber?: string;
   invoiceNumber?: string;
+  commissionAmount?: number; // Commission earned from buy transaction
+  labourCharges?: number; // Labour charges in buy transaction
 }
 
 /**
@@ -66,6 +68,8 @@ export interface SellTransaction extends BaseTransaction {
   paymentStatus: PaymentStatus;
   vehicleNumber?: string;
   invoiceNumber?: string;
+  commissionAmount?: number; // Commission earned from sell transaction
+  labourCharges?: number; // Labour charges in sell transaction
 }
 
 /**
@@ -125,6 +129,8 @@ export const TableSchemas = {
       payment_status TEXT NOT NULL,
       vehicle_number TEXT,
       invoice_number TEXT,
+      commission_amount REAL DEFAULT 0,
+      labour_charges REAL DEFAULT 0,
       date TEXT NOT NULL,
       description TEXT,
       created_at TEXT NOT NULL,
@@ -145,6 +151,8 @@ export const TableSchemas = {
       payment_status TEXT NOT NULL,
       vehicle_number TEXT,
       invoice_number TEXT,
+      commission_amount REAL DEFAULT 0,
+      labour_charges REAL DEFAULT 0,
       date TEXT NOT NULL,
       description TEXT,
       created_at TEXT NOT NULL,
@@ -200,6 +208,7 @@ export interface DashboardSummary {
   totalPendingBuyAmount: number;
   totalPendingSellAmount: number;
   totalPendingLendAmount: number;
+  totalBuyLabourCharges: number;
   profit: number;
   recentTransactions: Transaction[];
 }

@@ -8,6 +8,13 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, '15.0'
 prepare_react_native_project!
 
+use_modular_headers!
+
+# Speed up installation
+install! 'cocoapods', 
+  :deterministic_uuids => false,
+  :disable_input_output_paths => true
+
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
@@ -28,6 +35,38 @@ target 'MandiMobileAppTemp' do
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+        # Fix for Xcode 26 compatibility
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FOLLY_NO_CONFIG=1'
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FOLLY_MOBILE=1'
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FOLLY_USE_LIBCPP=1'
+        config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+        
+        # Fix RCT-Folly compilation issues with Xcode 26
+        if target.name == 'RCT-Folly'
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+          config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+          config.build_settings['GCC_WARN_PEDANTIC'] = 'NO'
+          config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+        end
+        
+        # Fix gRPC and Firebase module map issues with Xcode 26
+        if target.name.start_with?('gRPC') || target.name.include?('Firestore')
+          config.build_settings['USE_HEADERMAP'] = 'NO'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'NO'
+          config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        end
+      end
+    end
+    
+    # Patch RCT-Folly for Xcode 26 clockid_t typedef conflict
+    time_h = File.join(installer.sandbox.root, 'RCT-Folly/folly/portability/Time.h')
+    if File.exist?(time_h)
+      contents = File.read(time_h)
+      if contents.include?('typedef uint8_t clockid_t;') && !contents.include?('#ifndef clockid_t')
+        contents.gsub!('typedef uint8_t clockid_t;', "#ifndef clockid_t\ntypedef uint8_t clockid_t;\n#endif")
+        File.write(time_h, contents)
+        puts "Patched RCT-Folly Time.h for Xcode 26 compatibility"
       end
     end
     

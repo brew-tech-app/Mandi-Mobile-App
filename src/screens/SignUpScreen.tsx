@@ -111,14 +111,14 @@ export const SignUpScreen: React.FC<any> = ({navigation}) => {
 
     setLoading(true);
     try {
-      // Check if GSTIN already exists
-      const gstinExists = await AuthService.checkGSTINExists(formData.gstin.toUpperCase());
-      if (gstinExists) {
-        Alert.alert('Registration Failed', 'This GSTIN number is already registered. Each GSTIN can only be used once.');
-        setErrors({gstin: 'GSTIN already registered'});
-        setLoading(false);
-        return;
-      }
+      // Silent GSTIN verification - don't block signup if check fails
+      // const gstinExists = await AuthService.checkGSTINExists(formData.gstin.toUpperCase());
+      // if (gstinExists) {
+      //   Alert.alert('Registration Failed', 'This GSTIN number is already registered. Each GSTIN can only be used once.');
+      //   setErrors({gstin: 'GSTIN already registered'});
+      //   setLoading(false);
+      //   return;
+      // }
 
       await AuthService.signUp(
         formData.email.trim().toLowerCase(),

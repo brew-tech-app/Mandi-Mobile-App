@@ -5,14 +5,15 @@ import {
   ExpenseTransaction,
   DashboardSummary,
   Transaction,
+  PaymentStatus,
 } from '../models/Transaction';
 import {BuyTransactionRepository} from '../repositories/BuyTransactionRepository';
 import {SellTransactionRepository} from '../repositories/SellTransactionRepository';
 import {LendTransactionRepository} from '../repositories/LendTransactionRepository';
 import {ExpenseTransactionRepository} from '../repositories/ExpenseTransactionRepository';
 import DatabaseService from '../database/DatabaseService';
-import CloudBackupService from './CloudBackupService';
 import AuthService from './AuthService';
+import DailyResetService from './DailyResetService';
 
 /**
  * Transaction Service Interface
@@ -21,6 +22,7 @@ import AuthService from './AuthService';
 export interface ITransactionService {
   initializeDatabase(): Promise<void>;
   getDashboardSummary(): Promise<DashboardSummary>;
+  getDashboardSummaryByDateRange(startDate: Date, endDate: Date): Promise<DashboardSummary>;
 }
 
 /**
@@ -48,6 +50,9 @@ export class TransactionService implements ITransactionService {
     this.sellRepository = new SellTransactionRepository(db);
     this.lendRepository = new LendTransactionRepository(db);
     this.expenseRepository = new ExpenseTransactionRepository(db);
+    
+    // Check and perform daily reset if needed
+    await DailyResetService.checkAndResetIfNewDay();
   }
 
   /**
@@ -63,6 +68,8 @@ export class TransactionService implements ITransactionService {
         return;
       }
 
+      // Lazy import to avoid circular dependency
+      const {default: CloudBackupService} = await import('./CloudBackupService');
       // Upload single transaction to cloud (non-blocking)
       await CloudBackupService.uploadSingleTransaction(transaction, user.uid);
       console.log(`Auto-synced transaction ${transaction.id} to cloud`);
@@ -85,6 +92,8 @@ export class TransactionService implements ITransactionService {
         return;
       }
 
+      // Lazy import to avoid circular dependency
+      const {default: CloudBackupService} = await import('./CloudBackupService');
       // Delete single transaction from cloud (non-blocking)
       await CloudBackupService.deleteSingleTransaction(transactionId, user.uid);
       console.log(`Auto-deleted transaction ${transactionId} from cloud`);
@@ -364,6 +373,169 @@ export class TransactionService implements ITransactionService {
     return allTransactions.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
+  }
+
+  /**
+   * Filter transactions by date range
+   */
+  private filterTransactionsByDateRange<T extends Transaction>(
+    transactions: T[],
+    startDate: Date,
+    endDate: Date,
+  ): T[] {
+    return transactions.filter(transaction => {
+      const transactionDate = new Date(transaction.date);
+      return DailyResetService.isDateInRange(transactionDate, startDate, endDate);
+    });
+  }
+
+  /**
+   * Get dashboard summary filtered by date range
+   * For operational summary views (Daily/Monthly/Quarterly/Custom)
+   */
+  public async getDashboardSummaryByDateRange(
+    startDate: Date,
+    endDate: Date,
+  ): Promise<DashboardSummary> {
+    // Get all transactions
+    const [
+      allBuyTransactions,
+      allSellTransactions,
+      allLendTransactions,
+      allExpenseTransactions,
+    ] = await Promise.all([
+      this.buyRepository.findAll(),
+      this.sellRepository.findAll(),
+      this.lendRepository.findAll(),
+      this.expenseRepository.findAll(),
+    ]);
+
+    // Filter by date range
+    const buyTransactions = this.filterTransactionsByDateRange(
+      allBuyTransactions,
+      startDate,
+      endDate,
+    );
+    const sellTransactions = this.filterTransactionsByDateRange(
+      allSellTransactions,
+      startDate,
+      endDate,
+    );
+    const lendTransactions = this.filterTransactionsByDateRange(
+      allLendTransactions,
+      startDate,
+      endDate,
+    );
+    const expenseTransactions = this.filterTransactionsByDateRange(
+      allExpenseTransactions,
+      startDate,
+      endDate,
+    );
+
+    // Calculate totals for the date range
+    const totalBuyAmount = buyTransactions.reduce(
+      (sum, t) => sum + t.totalAmount,
+      0,
+    );
+    const totalSellAmount = sellTransactions.reduce(
+      (sum, t) => sum + t.totalAmount,
+      0,
+    );
+    const totalLendAmount = lendTransactions.reduce(
+      (sum, t) => sum + (t.amount || 0),
+      0,
+    );
+    const totalExpenseAmount = expenseTransactions.reduce(
+      (sum, t) => sum + t.amount,
+      0,
+    );
+
+    // Calculate pending amounts (running totals - not filtered by date)
+    const totalPendingBuyAmount = allBuyTransactions
+      .filter(t => t.paymentStatus === PaymentStatus.PENDING || t.paymentStatus === PaymentStatus.PARTIAL)
+      .reduce((sum, t) => sum + t.balanceAmount, 0);
+
+    const totalPendingSellAmount = allSellTransactions
+      .filter(t => t.paymentStatus === PaymentStatus.PENDING || t.paymentStatus === PaymentStatus.PARTIAL)
+      .reduce((sum, t) => sum + t.balanceAmount, 0);
+
+    const totalPendingLendAmount = allLendTransactions
+      .filter(t => t.paymentStatus === PaymentStatus.PENDING || t.paymentStatus === PaymentStatus.PARTIAL)
+      .reduce((sum, t) => sum + t.balanceAmount, 0);
+
+    // Calculate total commissions and labour charges
+    const totalBuyCommission = buyTransactions.reduce(
+      (sum, t) => sum + (t.commissionAmount || 0),
+      0,
+    );
+    const totalSellCommission = sellTransactions.reduce(
+      (sum, t) => sum + (t.commissionAmount || 0),
+      0,
+    );
+    const totalSellLabourCharges = sellTransactions.reduce(
+      (sum, t) => sum + (t.labourCharges || 0),
+      0,
+    );
+    const totalBuyLabourCharges = buyTransactions.reduce(
+      (sum, t) => sum + (t.labourCharges || 0),
+      0,
+    );
+
+    // Calculate profit using the formula:
+    // Net Profit/Loss = Total Commission(Buy) + Total Commission(Sell) + Labour Charge(Sell) - Expense
+    const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
+
+    // Get recent transactions from the date range (last 10)
+    const allRangeTransactions: Transaction[] = [
+      ...buyTransactions,
+      ...sellTransactions,
+      ...lendTransactions,
+      ...expenseTransactions,
+    ];
+
+    const recentTransactions = allRangeTransactions
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10);
+
+    return {
+      totalBuyAmount,
+      totalSellAmount,
+      totalLendAmount,
+      totalExpenseAmount,
+      totalPendingBuyAmount,
+      totalPendingSellAmount,
+      totalPendingLendAmount,
+      totalBuyLabourCharges,
+      profit,
+      recentTransactions,
+    };
+  }
+
+  /**
+   * Get daily operational summary (today only)
+   */
+  public async getDailyOperationalSummary(): Promise<DashboardSummary> {
+    const startDate = DailyResetService.getStartOfDay();
+    const endDate = DailyResetService.getEndOfDay();
+    return this.getDashboardSummaryByDateRange(startDate, endDate);
+  }
+
+  /**
+   * Get monthly operational summary (current month)
+   */
+  public async getMonthlyOperationalSummary(): Promise<DashboardSummary> {
+    const startDate = DailyResetService.getStartOfMonth();
+    const endDate = DailyResetService.getEndOfMonth();
+    return this.getDashboardSummaryByDateRange(startDate, endDate);
+  }
+
+  /**
+   * Get quarterly operational summary (current quarter)
+   */
+  public async getQuarterlyOperationalSummary(): Promise<DashboardSummary> {
+    const startDate = DailyResetService.getStartOfQuarter();
+    const endDate = DailyResetService.getEndOfQuarter();
+    return this.getDashboardSummaryByDateRange(startDate, endDate);
   }
 }
 

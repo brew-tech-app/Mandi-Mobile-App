@@ -23,8 +23,8 @@ export class SellTransactionRepository extends BaseRepository<SellTransaction> {
       INSERT INTO ${this.tableName} (
         id, buyer_name, buyer_phone, grain_type, quantity, rate_per_quintal,
         total_amount, received_amount, balance_amount, payment_status, vehicle_number,
-        invoice_number, date, description, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        invoice_number, commission_amount, labour_charges, date, description, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -40,6 +40,8 @@ export class SellTransactionRepository extends BaseRepository<SellTransaction> {
       entity.paymentStatus,
       entity.vehicleNumber || null,
       entity.invoiceNumber || null,
+      entity.commissionAmount || 0,
+      entity.labourCharges || 0,
       entity.date,
       entity.description || null,
       timestamp,
@@ -125,6 +127,14 @@ export class SellTransactionRepository extends BaseRepository<SellTransaction> {
       updateFields.push('invoice_number = ?');
       params.push(entity.invoiceNumber);
     }
+    if (entity.commissionAmount !== undefined) {
+      updateFields.push('commission_amount = ?');
+      params.push(entity.commissionAmount);
+    }
+    if (entity.labourCharges !== undefined) {
+      updateFields.push('labour_charges = ?');
+      params.push(entity.labourCharges);
+    }
     if (entity.date !== undefined) {
       updateFields.push('date = ?');
       params.push(entity.date);
@@ -203,6 +213,8 @@ export class SellTransactionRepository extends BaseRepository<SellTransaction> {
       paymentStatus: row.payment_status as PaymentStatus,
       vehicleNumber: row.vehicle_number,
       invoiceNumber: row.invoice_number,
+      commissionAmount: row.commission_amount,
+      labourCharges: row.labour_charges,
       date: row.date,
       description: row.description,
       createdAt: row.created_at,

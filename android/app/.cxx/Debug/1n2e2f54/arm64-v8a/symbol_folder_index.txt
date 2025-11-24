@@ -1,0 +1,1 @@
+/Users/vishvendrasingh/projects/Mandi-Mobile-App/android/app/build/intermediates/cxx/Debug/1n2e2f54/obj/arm64-v8a

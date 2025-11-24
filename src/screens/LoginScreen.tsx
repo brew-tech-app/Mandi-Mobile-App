@@ -47,10 +47,13 @@ export const LoginScreen: React.FC<any> = ({navigation}) => {
 
     setLoading(true);
     try {
-      await AuthService.signIn(email, password);
+      console.log('Login attempt with email:', email);
+      await AuthService.signIn(email.trim().toLowerCase(), password);
+      console.log('Sign in successful, navigating to Main');
       navigation.replace('Main');
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      console.error('Login error:', error);
+      Alert.alert('Login Failed', error.message || 'An error occurred during login');
     } finally {
       setLoading(false);
     }

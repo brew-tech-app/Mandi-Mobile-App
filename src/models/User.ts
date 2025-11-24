@@ -8,6 +8,8 @@ export interface User {
   firmName?: string;
   gstin?: string;
   phoneNumber?: string;
+  currentCashBalance?: number;
+  lastBalanceUpdate?: string;
   createdAt: string;
   lastSyncedAt?: string;
 }

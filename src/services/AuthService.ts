@@ -15,14 +15,36 @@ class AuthService {
    */
   async checkGSTINExists(gstin: string): Promise<boolean> {
     try {
-      const snapshot = await firestore()
+      console.log('Checking GSTIN in Firestore:', gstin);
+      
+      // Check if Firestore is available
+      const firestoreInstance = firestore();
+      if (!firestoreInstance) {
+        console.warn('Firestore not available, skipping GSTIN check');
+        return false;
+      }
+
+      const snapshot = await firestoreInstance
         .collection('gstins')
         .doc(gstin)
         .get();
-      return snapshot.exists();
-    } catch (error) {
+      
+      const exists = typeof snapshot.exists === 'function' ? snapshot.exists() : !!snapshot.exists;
+      console.log('GSTIN check completed. Exists:', exists);
+      return exists;
+    } catch (error: any) {
       console.error('Error checking GSTIN:', error);
-      return false;
+      console.error('Error details - Message:', error.message, 'Code:', error.code);
+      
+      // If it's a network/permission error, allow signup to proceed
+      // but log the error for debugging
+      if (error.code === 'unavailable' || error.code === 'permission-denied' || error.message?.includes('network')) {
+        console.warn('Firestore unavailable, allowing signup to proceed');
+        return false;
+      }
+      
+      // For other errors, throw so UI can handle it
+      throw new Error(`Unable to verify GSTIN. Please check your internet connection and try again. (${error.message || 'Unknown error'})`);
     }
   }
 
@@ -57,29 +79,39 @@ class AuthService {
 
       // Store GSTIN in Firestore to prevent duplicates
       if (gstin) {
-        await firestore()
-          .collection('gstins')
-          .doc(gstin)
-          .set({
-            uid: userCredential.user.uid,
-            email: email,
-            firmName: firmName,
-            createdAt: new Date().toISOString(),
-          });
+        try {
+          await firestore()
+            .collection('gstins')
+            .doc(gstin)
+            .set({
+              uid: userCredential.user.uid,
+              email: email,
+              firmName: firmName,
+              createdAt: new Date().toISOString(),
+            });
+        } catch (error) {
+          console.warn('Failed to store GSTIN in Firestore:', error);
+          // Continue with signup even if GSTIN storage fails
+        }
       }
 
       // Store user profile in Firestore
-      await firestore()
-        .collection('users')
-        .doc(userCredential.user.uid)
-        .set({
-          email: user.email,
-          displayName: user.displayName,
-          firmName: user.firmName,
-          gstin: user.gstin,
-          phoneNumber: user.phoneNumber,
-          createdAt: user.createdAt,
-        });
+      try {
+        await firestore()
+          .collection('users')
+          .doc(userCredential.user.uid)
+          .set({
+            email: user.email,
+            displayName: user.displayName,
+            firmName: user.firmName,
+            gstin: user.gstin,
+            phoneNumber: user.phoneNumber,
+            createdAt: user.createdAt,
+          });
+      } catch (error) {
+        console.warn('Failed to store user profile in Firestore:', error);
+        // Continue with signup even if Firestore storage fails
+      }
 
       await this.saveUserLocally(user);
       this.currentUser = user;
@@ -95,7 +127,9 @@ class AuthService {
    */
   async signIn(email: string, password: string): Promise<User> {
     try {
+      console.log('Attempting sign in with email:', email);
       const userCredential = await auth().signInWithEmailAndPassword(email, password);
+      console.log('Sign in successful, UID:', userCredential.user.uid);
       
       const user: User = {
         uid: userCredential.user.uid,
@@ -110,6 +144,7 @@ class AuthService {
       
       return user;
     } catch (error: any) {
+      console.error('Sign in error:', error.code, error.message);
       throw new Error(this.getErrorMessage(error.code));
     }
   }

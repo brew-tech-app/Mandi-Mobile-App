@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "prefabPath": "/Users/vishvendrasingh/.gradle/caches/modules-2/files-2.1/com.google.prefab/cli/2.0.0/f2702b5ca13df54e3ca92f29d6b403fb6285d8df/cli-2.0.0-all.jar",
+  "packages": [
+    "/Users/vishvendrasingh/.gradle/caches/transforms-4/b1e644ba08f2e3022852b9c9fd5eb0d2/transformed/react-android-0.73.11-debug/prefab",
+    "/Users/vishvendrasingh/.gradle/caches/transforms-4/36db26668190107aaeb4abcd6b50e8d1/transformed/hermes-android-0.73.11-debug/prefab",
+    "/Users/vishvendrasingh/.gradle/caches/transforms-4/41ba7f7bd09969e5f473e8961282d992/transformed/fbjni-0.5.1/prefab"
+  ]
+}

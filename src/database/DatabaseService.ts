@@ -1,5 +1,6 @@
 import SQLite, {SQLiteDatabase} from 'react-native-sqlite-storage';
 import {TableSchemas} from '../models/Transaction';
+import {FarmerTableSchema} from '../models/Farmer';
 
 /**
  * Database Service implementing Single Responsibility Principle
@@ -57,6 +58,7 @@ export class DatabaseService {
     }
 
     try {
+      await this.database.executeSql(FarmerTableSchema);
       await this.database.executeSql(TableSchemas.BUY_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.SELL_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.LEND_TRANSACTIONS);

@@ -1,28 +1,31 @@
 /**
- * Color palette for the app
+ * Color palette for the app - Grain Ledger Theme
  */
 export const Colors = {
-  primary: '#2E7D32',
-  primaryDark: '#1B5E20',
-  primaryLight: '#4CAF50',
+  primary: '#5B4FE8',
+  primaryDark: '#4338CA',
+  primaryLight: '#7C3AED',
   secondary: '#FF6F00',
   secondaryDark: '#E65100',
   secondaryLight: '#FF9800',
-  background: '#F5F5F5',
+  background: '#F9FAFB',
   surface: '#FFFFFF',
-  error: '#D32F2F',
-  success: '#388E3C',
-  warning: '#F57C00',
+  error: '#EF4444',
+  success: '#22C55E',
+  warning: '#F59E0B',
   info: '#1976D2',
   textPrimary: '#212121',
   textSecondary: '#757575',
   textLight: '#FFFFFF',
-  border: '#E0E0E0',
+  border: '#E5E7EB',
   disabled: '#BDBDBD',
-  buy: '#1976D2',
-  sell: '#388E3C',
-  lend: '#F57C00',
-  expense: '#D32F2F',
+  buy: '#F59E0B',
+  sell: '#22C55E',
+  lend: '#EF4444',
+  expense: '#A855F7',
+  blue: '#3B82F6',
+  purple: '#A855F7',
+  gradient: ['#5B4FE8', '#7C3AED'],
 };
 
 /**

@@ -5,6 +5,7 @@ import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createStackNavigator} from '@react-navigation/stack';
 import {DashboardScreen} from '../screens/DashboardScreen';
 import {BuyTransactionsScreen} from '../screens/BuyTransactionsScreen';
+import {AddBuyTransactionScreen} from '../screens/AddBuyTransactionScreen';
 import {LoginScreen} from '../screens/LoginScreen';
 import {SignUpScreen} from '../screens/SignUpScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
@@ -13,6 +14,36 @@ import AuthService from '../services/AuthService';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+const BuyStack = createStackNavigator();
+
+/**
+ * Buy Stack Navigator
+ */
+const BuyStackNavigator = () => {
+  return (
+    <BuyStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: Colors.primary,
+        },
+        headerTintColor: Colors.textLight,
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+      }}>
+      <BuyStack.Screen
+        name="BuyTransactionsList"
+        component={BuyTransactionsScreen}
+        options={{title: 'Buy Transactions'}}
+      />
+      <BuyStack.Screen
+        name="AddBuyTransaction"
+        component={AddBuyTransactionScreen}
+        options={{title: 'Add Buy Transaction'}}
+      />
+    </BuyStack.Navigator>
+  );
+};
 
 /**
  * Bottom Tab Navigator
@@ -34,7 +65,7 @@ const BottomTabNavigator = () => {
       />
       <Tab.Screen
         name="BuyTransactions"
-        component={BuyTransactionsScreen}
+        component={BuyStackNavigator}
         options={{
           tabBarLabel: 'Buy',
         }}
