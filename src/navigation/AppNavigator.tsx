@@ -20,6 +20,7 @@ import {SignUpScreen} from '../screens/SignUpScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
 import {Colors} from '../constants/theme';
 import AuthService from '../services/AuthService';
+import auth from '@react-native-firebase/auth';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -211,19 +212,15 @@ export const AppNavigator = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAuthState();
-  }, []);
-
-  const checkAuthState = async () => {
-    try {
-      const user = await AuthService.getCurrentUser();
+    // Subscribe to Firebase auth state changes
+    const unsubscribe = auth().onAuthStateChanged(user => {
       setIsAuthenticated(!!user);
-    } catch (error) {
-      setIsAuthenticated(false);
-    } finally {
       setLoading(false);
-    }
-  };
+    });
+
+    // Cleanup subscription on unmount
+    return unsubscribe;
+  }, []);
 
   if (loading) {
     return (

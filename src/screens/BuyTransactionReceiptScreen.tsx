@@ -355,7 +355,7 @@ export const BuyTransactionReceiptScreen: React.FC<any> = ({route, navigation}) 
         {/* Amount Details */}
         <View style={styles.section}>
           <View style={styles.amountRow}>
-            <Text style={styles.amountLabel}>Total Gross Amount:</Text>
+            <Text style={styles.amountLabel}>Gross Amount:</Text>
             <Text style={styles.amountValue}>₹{transaction.totalAmount.toFixed(2)}</Text>
           </View>
 

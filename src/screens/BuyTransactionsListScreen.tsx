@@ -168,50 +168,20 @@ export const BuyTransactionsListScreen: React.FC<any> = ({navigation, route}) =>
           <Text style={styles.detailLabel}>Grain:</Text>
           <Text style={styles.detailValue}>{item.grainType}</Text>
         </View>
-        {(() => {
-          // Try to parse quantity breakdown from description
-          if (item.description && item.description.includes('@')) {
-            const match = item.description.match(/:(\s*\d+)\s*bags\s*×\s*(\d+)kg(?:\s*\+\s*(\d+)kg)?/);
-            if (match) {
-              const [, bags, weight, extra] = match;
-              return (
-                <>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Quantity:</Text>
-                    <Text style={styles.detailValue}>
-                      {bags.trim()} × {weight}{extra ? ' + ' + extra : ''}
-                    </Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}></Text>
-                    <Text style={styles.detailValue}>
-                      {item.quantity.toFixed(2)} Qtl × ₹{item.ratePerQuintal.toFixed(2)}
-                    </Text>
-                  </View>
-                </>
-              );
-            }
-          }
-          // Fallback to simple quantity display
-          return (
-            <>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Quantity:</Text>
-                <Text style={styles.detailValue}>{item.quantity.toFixed(2)} Qtl</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Rate:</Text>
-                <Text style={styles.detailValue}>₹{item.ratePerQuintal.toFixed(2)}/Qtl</Text>
-              </View>
-            </>
-          );
-        })()}
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Quantity:</Text>
+          <Text style={styles.detailValue}>{item.quantity.toFixed(2)} Qtl</Text>
+        </View>
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Rate:</Text>
+          <Text style={styles.detailValue}>₹{item.ratePerQuintal.toFixed(2)}/Qtl</Text>
+        </View>
       </View>
 
       <View style={styles.transactionFooter}>
         <View style={styles.amountSection}>
-          <Text style={styles.amountLabel}>Total Amount</Text>
-          <Text style={styles.amountValue}>₹{item.totalAmount.toFixed(2)}</Text>
+          <Text style={styles.amountLabel}>Net Payable</Text>
+          <Text style={styles.amountValue}>₹{(item.totalAmount - (item.commissionAmount || 0) - (item.labourCharges || 0)).toFixed(2)}</Text>
         </View>
         <View style={styles.amountSection}>
           <Text style={styles.amountLabel}>Paid</Text>

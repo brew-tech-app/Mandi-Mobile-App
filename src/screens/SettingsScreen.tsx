@@ -126,7 +126,7 @@ export const SettingsScreen: React.FC<any> = ({navigation}) => {
         onPress: async () => {
           try {
             await AuthService.signOut();
-            navigation.replace('Login');
+            // Navigation will happen automatically via auth state listener in AppNavigator
           } catch (error) {
             Alert.alert('Error', 'Failed to logout');
           }

@@ -275,12 +275,19 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
         `[${idx + 1}] ${txn.grainType}: ${txn.numberOfBags} bags × ${txn.weightPerBag}kg + ${txn.extraWeight || 0}kg @ ₹${txn.pricePerQuintal}/qt`
       ).join('; ');
 
+      // Calculate rate per quintal
+      // For single grain: use its rate
+      // For multiple grains: calculate weighted average rate
+      const ratePerQuintal = grainTransactions.length === 1 
+        ? parseFloat(grainTransactions[0].pricePerQuintal) || 0
+        : totalWeight > 0 ? grossAmount / totalWeight : 0;
+
       await TransactionService.createBuyTransaction({
         supplierName: farmerName.trim(),
         supplierPhone: farmerPhone,
         grainType: grainTransactions.map(t => t.grainType).join(', '),
         quantity: parseFloat(totalWeight.toFixed(2)),
-        ratePerQuintal: 0, // Mixed rates, not applicable
+        ratePerQuintal: parseFloat(ratePerQuintal.toFixed(2)),
         totalAmount: grossAmount,
         paidAmount: advance,
         balanceAmount: finalPayable,
@@ -476,10 +483,14 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
               </View>
 
               <View style={styles.calculatedCard}>
-                <Text style={styles.calculatedLabel}>Weight:</Text>
-                <Text style={styles.calculatedValue}>{calculateTransactionWeight(transaction).toFixed(2)} Qtl</Text>
-                <Text style={styles.calculatedLabel}>Amount:</Text>
-                <Text style={styles.calculatedValue}>₹{calculateTransactionAmount(transaction).toFixed(0)}</Text>
+                <View style={styles.calculatedRow}>
+                  <Text style={styles.calculatedLabel}>Weight:</Text>
+                  <Text style={styles.calculatedValue}>{calculateTransactionWeight(transaction).toFixed(2)} Qtl</Text>
+                </View>
+                <View style={styles.calculatedRow}>
+                  <Text style={styles.calculatedLabel}>Amount:</Text>
+                  <Text style={styles.calculatedValue}>₹{calculateTransactionAmount(transaction).toFixed(0)}</Text>
+                </View>
               </View>
             </View>
           ))}
@@ -491,8 +502,10 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
           </TouchableOpacity>
 
           <View style={[styles.calculatedCard, styles.totalCard]}>
-            <Text style={styles.calculatedLabel}>Total Weight (Quintal):</Text>
-            <Text style={styles.calculatedValue}>{totalWeight.toFixed(2)} Qtl</Text>
+            <View style={styles.calculatedRow}>
+              <Text style={styles.calculatedLabel}>Total Weight (Quintal):</Text>
+              <Text style={styles.calculatedValue}>{totalWeight.toFixed(2)} Qtl</Text>
+            </View>
           </View>
         </View>
 
@@ -697,19 +710,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#C7D2FE',
   },
+  calculatedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.xs,
+  },
   calculatedLabel: {
-    ...Typography.body1,
+    ...Typography.body2,
     color: Colors.textPrimary,
     fontWeight: '500',
   },
   calculatedValue: {
-    ...Typography.h3,
+    ...Typography.h4,
     color: Colors.primary,
     fontWeight: 'bold',
   },

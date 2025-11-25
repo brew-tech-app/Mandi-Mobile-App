@@ -181,8 +181,8 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
 
       <View style={styles.transactionFooter}>
         <View style={styles.amountSection}>
-          <Text style={styles.amountLabel}>Total Amount</Text>
-          <Text style={styles.amountValue}>₹{item.totalAmount.toFixed(2)}</Text>
+          <Text style={styles.amountLabel}>Net Receivable</Text>
+          <Text style={styles.amountValue}>₹{(item.totalAmount + (item.commissionAmount || 0) + (item.labourCharges || 0)).toFixed(2)}</Text>
         </View>
         <View style={styles.amountSection}>
           <Text style={styles.amountLabel}>Received</Text>

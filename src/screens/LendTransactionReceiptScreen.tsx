@@ -178,8 +178,12 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
     }
 
     try {
-      // Create payment record
-      await TransactionService.createPayment({
+      // Create payment record using PaymentRepository directly
+      const db = await import('../database/DatabaseService').then(m => m.default.getDatabase());
+      const {PaymentRepository} = await import('../repositories/PaymentRepository');
+      const paymentRepo = new PaymentRepository(db);
+      
+      await paymentRepo.create({
         transactionId: transaction.id,
         transactionType: 'LEND',
         amount: amount,
