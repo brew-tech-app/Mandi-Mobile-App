@@ -209,6 +209,9 @@ export interface DashboardSummary {
   totalPendingSellAmount: number;
   totalPendingLendAmount: number;
   totalBuyLabourCharges: number;
+  totalBuyCommission: number;
+  totalSellCommission: number;
+  totalSellLabourCharges: number;
   profit: number;
   recentTransactions: Transaction[];
 }

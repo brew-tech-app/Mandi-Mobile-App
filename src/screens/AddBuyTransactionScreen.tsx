@@ -31,12 +31,26 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
   const [checkingFarmer, setCheckingFarmer] = useState(false);
   const [showFarmerFields, setShowFarmerFields] = useState(false);
   
-  // Grain Details
-  const [grainType, setGrainType] = useState('');
-  const [numberOfBags, setNumberOfBags] = useState('');
-  const [weightPerBag, setWeightPerBag] = useState('');
-  const [extraWeight, setExtraWeight] = useState('');
-  const [pricePerQuintal, setPricePerQuintal] = useState('');
+  // Grain Details - Support multiple transactions
+  interface GrainTransaction {
+    id: string;
+    grainType: string;
+    numberOfBags: string;
+    weightPerBag: string;
+    extraWeight: string;
+    pricePerQuintal: string;
+  }
+  
+  const [grainTransactions, setGrainTransactions] = useState<GrainTransaction[]>([
+    {
+      id: '1',
+      grainType: '',
+      numberOfBags: '',
+      weightPerBag: '',
+      extraWeight: '',
+      pricePerQuintal: '',
+    }
+  ]);
   
   // Fees & Charges
   const [commissionPercent, setCommissionPercent] = useState('');
@@ -94,30 +108,43 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
     }
   };
 
-  // Calculations
-  const calculateTotalWeight = (): number => {
-    const bags = parseFloat(numberOfBags) || 0;
-    const weightBag = parseFloat(weightPerBag) || 0;
-    const extra = parseFloat(extraWeight) || 0;
+  // Helper functions for individual transaction calculations
+  const calculateTransactionWeight = (transaction: GrainTransaction): number => {
+    const bags = parseFloat(transaction.numberOfBags) || 0;
+    const weightBag = parseFloat(transaction.weightPerBag) || 0;
+    const extra = parseFloat(transaction.extraWeight) || 0;
     return (bags * weightBag + extra) / 100;
   };
 
-  const calculateGrossAmount = (): number => {
-    const weight = calculateTotalWeight();
-    const price = parseFloat(pricePerQuintal) || 0;
+  const calculateTransactionAmount = (transaction: GrainTransaction): number => {
+    const weight = calculateTransactionWeight(transaction);
+    const price = parseFloat(transaction.pricePerQuintal) || 0;
     return Math.round(weight * price);
   };
 
-  const calculateTotalLabourCharges = (): number => {
-    const bags = parseFloat(numberOfBags) || 0;
+  const calculateTransactionLabourCharges = (transaction: GrainTransaction): number => {
+    const bags = parseFloat(transaction.numberOfBags) || 0;
     const labourCharge = parseFloat(labourChargePerBag) || 0;
-    const weightBag = parseFloat(weightPerBag) || 0;
-    const extra = parseFloat(extraWeight) || 0;
+    const weightBag = parseFloat(transaction.weightPerBag) || 0;
+    const extra = parseFloat(transaction.extraWeight) || 0;
     
     const regularLabour = bags * labourCharge;
     const extraLabour = weightBag > 0 ? (extra / weightBag) * labourCharge : 0;
     
     return Math.round((regularLabour + extraLabour) / 10) * 10;
+  };
+
+  // Aggregate calculations for all transactions
+  const calculateTotalWeight = (): number => {
+    return grainTransactions.reduce((sum, txn) => sum + calculateTransactionWeight(txn), 0);
+  };
+
+  const calculateGrossAmount = (): number => {
+    return grainTransactions.reduce((sum, txn) => sum + calculateTransactionAmount(txn), 0);
+  };
+
+  const calculateTotalLabourCharges = (): number => {
+    return grainTransactions.reduce((sum, txn) => sum + calculateTransactionLabourCharges(txn), 0);
   };
 
   const calculateTotalCommission = (): number => {
@@ -149,6 +176,36 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
     return PaymentStatus.PARTIAL;
   };
 
+  // Grain transaction management
+  const addGrainTransaction = () => {
+    const newId = (grainTransactions.length + 1).toString();
+    setGrainTransactions([
+      ...grainTransactions,
+      {
+        id: newId,
+        grainType: '',
+        numberOfBags: '',
+        weightPerBag: '',
+        extraWeight: '',
+        pricePerQuintal: '',
+      }
+    ]);
+  };
+
+  const removeGrainTransaction = (id: string) => {
+    if (grainTransactions.length === 1) {
+      Alert.alert('Cannot Remove', 'At least one grain transaction is required');
+      return;
+    }
+    setGrainTransactions(grainTransactions.filter(txn => txn.id !== id));
+  };
+
+  const updateGrainTransaction = (id: string, field: keyof GrainTransaction, value: string) => {
+    setGrainTransactions(grainTransactions.map(txn => 
+      txn.id === id ? { ...txn, [field]: value } : txn
+    ));
+  };
+
   const validateForm = (): boolean => {
     if (farmerPhone.length !== 10) {
       Alert.alert('Validation Error', 'Please enter valid 10-digit phone number');
@@ -162,21 +219,26 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       Alert.alert('Validation Error', 'Please enter farmer address');
       return false;
     }
-    if (!grainType.trim()) {
-      Alert.alert('Validation Error', 'Please enter grain type');
-      return false;
-    }
-    if (!numberOfBags || parseFloat(numberOfBags) <= 0) {
-      Alert.alert('Validation Error', 'Please enter valid number of bags');
-      return false;
-    }
-    if (!weightPerBag || parseFloat(weightPerBag) <= 0) {
-      Alert.alert('Validation Error', 'Please enter valid weight per bag');
-      return false;
-    }
-    if (!pricePerQuintal || parseFloat(pricePerQuintal) <= 0) {
-      Alert.alert('Validation Error', 'Please enter valid price per quintal');
-      return false;
+    
+    // Validate each grain transaction
+    for (let i = 0; i < grainTransactions.length; i++) {
+      const txn = grainTransactions[i];
+      if (!txn.grainType.trim()) {
+        Alert.alert('Validation Error', `Please enter grain type for transaction ${i + 1}`);
+        return false;
+      }
+      if (!txn.numberOfBags || parseFloat(txn.numberOfBags) <= 0) {
+        Alert.alert('Validation Error', `Please enter valid number of bags for transaction ${i + 1}`);
+        return false;
+      }
+      if (!txn.weightPerBag || parseFloat(txn.weightPerBag) <= 0) {
+        Alert.alert('Validation Error', `Please enter valid weight per bag for transaction ${i + 1}`);
+        return false;
+      }
+      if (!txn.pricePerQuintal || parseFloat(txn.pricePerQuintal) <= 0) {
+        Alert.alert('Validation Error', `Please enter valid price per quintal for transaction ${i + 1}`);
+        return false;
+      }
     }
     return true;
   };
@@ -208,12 +270,17 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       const finalPayable = calculateFinalNetPayable();
       const advance = parseFloat(advancePaid) || 0;
 
+      // Create description with all transactions
+      const description = grainTransactions.map((txn, idx) => 
+        `[${idx + 1}] ${txn.grainType}: ${txn.numberOfBags} bags × ${txn.weightPerBag}kg + ${txn.extraWeight || 0}kg @ ₹${txn.pricePerQuintal}/qt`
+      ).join('; ');
+
       await TransactionService.createBuyTransaction({
         supplierName: farmerName.trim(),
         supplierPhone: farmerPhone,
-        grainType: grainType.trim(),
+        grainType: grainTransactions.map(t => t.grainType).join(', '),
         quantity: parseFloat(totalWeight.toFixed(2)),
-        ratePerQuintal: parseFloat(pricePerQuintal),
+        ratePerQuintal: 0, // Mixed rates, not applicable
         totalAmount: grossAmount,
         paidAmount: advance,
         balanceAmount: finalPayable,
@@ -221,7 +288,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
         commissionAmount: commission,
         labourCharges: labourCharges,
         date: new Date().toISOString(),
-        description: `Bags: ${numberOfBags}, Weight/Bag: ${weightPerBag}, Extra: ${extraWeight}`,
+        description,
       });
 
       Alert.alert(
@@ -328,72 +395,102 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
 
         {/* Grain Details Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🌾 Grain Details</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>🌾 Grain Details</Text>
+          </View>
           
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Grain Type *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g., Wheat, Rice, Maize"
-              placeholderTextColor={Colors.textSecondary}
-              value={grainType}
-              onChangeText={setGrainType}
-            />
-          </View>
+          {grainTransactions.map((transaction, index) => (
+            <View key={transaction.id} style={styles.transactionCard}>
+              <View style={styles.transactionHeader}>
+                <Text style={styles.transactionNumber}>Transaction #{index + 1}</Text>
+                {grainTransactions.length > 1 && (
+                  <TouchableOpacity
+                    onPress={() => removeGrainTransaction(transaction.id)}
+                    style={styles.removeButton}>
+                    <Text style={styles.removeButtonText}>✕ Remove</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>No. of Bags *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0"
-                placeholderTextColor={Colors.textSecondary}
-                value={numberOfBags}
-                onChangeText={setNumberOfBags}
-                keyboardType="numeric"
-              />
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Grain Type *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., Wheat, Rice, Maize"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={transaction.grainType}
+                  onChangeText={(value) => updateGrainTransaction(transaction.id, 'grainType', value)}
+                />
+              </View>
+
+              <View style={styles.row}>
+                <View style={[styles.inputGroup, styles.halfWidth]}>
+                  <Text style={styles.label}>No. of Bags *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="0"
+                    placeholderTextColor={Colors.textSecondary}
+                    value={transaction.numberOfBags}
+                    onChangeText={(value) => updateGrainTransaction(transaction.id, 'numberOfBags', value)}
+                    keyboardType="numeric"
+                  />
+                </View>
+
+                <View style={[styles.inputGroup, styles.halfWidth]}>
+                  <Text style={styles.label}>Weight/Bag (Qtl) *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textSecondary}
+                    value={transaction.weightPerBag}
+                    onChangeText={(value) => updateGrainTransaction(transaction.id, 'weightPerBag', value)}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.row}>
+                <View style={[styles.inputGroup, styles.halfWidth]}>
+                  <Text style={styles.label}>Extra Weight (Qtl)</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textSecondary}
+                    value={transaction.extraWeight}
+                    onChangeText={(value) => updateGrainTransaction(transaction.id, 'extraWeight', value)}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+
+                <View style={[styles.inputGroup, styles.halfWidth]}>
+                  <Text style={styles.label}>Price/Quintal (₹) *</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textSecondary}
+                    value={transaction.pricePerQuintal}
+                    onChangeText={(value) => updateGrainTransaction(transaction.id, 'pricePerQuintal', value)}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.calculatedCard}>
+                <Text style={styles.calculatedLabel}>Weight:</Text>
+                <Text style={styles.calculatedValue}>{calculateTransactionWeight(transaction).toFixed(2)} Qtl</Text>
+                <Text style={styles.calculatedLabel}>Amount:</Text>
+                <Text style={styles.calculatedValue}>₹{calculateTransactionAmount(transaction).toFixed(0)}</Text>
+              </View>
             </View>
+          ))}
 
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Weight/Bag (Qtl) *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0.00"
-                placeholderTextColor={Colors.textSecondary}
-                value={weightPerBag}
-                onChangeText={setWeightPerBag}
-                keyboardType="decimal-pad"
-              />
-            </View>
-          </View>
+          <TouchableOpacity
+            style={styles.addTransactionButton}
+            onPress={addGrainTransaction}>
+            <Text style={styles.addTransactionButtonText}>+ Add Transaction</Text>
+          </TouchableOpacity>
 
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Extra Weight (Qtl)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0.00"
-                placeholderTextColor={Colors.textSecondary}
-                value={extraWeight}
-                onChangeText={setExtraWeight}
-                keyboardType="decimal-pad"
-              />
-            </View>
-
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Price/Quintal (₹) *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0.00"
-                placeholderTextColor={Colors.textSecondary}
-                value={pricePerQuintal}
-                onChangeText={setPricePerQuintal}
-                keyboardType="decimal-pad"
-              />
-            </View>
-          </View>
-
-          <View style={styles.calculatedCard}>
+          <View style={[styles.calculatedCard, styles.totalCard]}>
             <Text style={styles.calculatedLabel}>Total Weight (Quintal):</Text>
             <Text style={styles.calculatedValue}>{totalWeight.toFixed(2)} Qtl</Text>
           </View>
@@ -692,5 +789,56 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     ...Typography.button,
     color: Colors.textSecondary,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  transactionCard: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  transactionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  transactionNumber: {
+    ...Typography.body1,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  removeButton: {
+    backgroundColor: Colors.error,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+  },
+  removeButtonText: {
+    ...Typography.caption,
+    color: Colors.textLight,
+    fontWeight: '600',
+  },
+  addTransactionButton: {
+    backgroundColor: Colors.primary,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  addTransactionButtonText: {
+    ...Typography.button,
+    color: Colors.textLight,
+    fontWeight: '600',
+  },
+  totalCard: {
+    backgroundColor: Colors.secondary,
   },
 });

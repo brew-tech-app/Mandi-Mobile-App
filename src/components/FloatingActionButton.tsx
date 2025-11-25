@@ -46,12 +46,10 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({items
     <>
       {/* Backdrop */}
       {isOpen && (
-        <Modal transparent visible={isOpen} animationType="fade" onRequestClose={toggleMenu}>
-          <Pressable style={styles.backdrop} onPress={toggleMenu} />
-        </Modal>
+        <Pressable style={styles.backdrop} onPress={toggleMenu} />
       )}
 
-      <View style={styles.container}>
+      <View style={styles.container} pointerEvents="box-none">
         {/* Menu Items */}
         {isOpen &&
           items.map((item, index) => {
@@ -69,7 +67,8 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({items
                     transform: [{translateY: itemAnimation}],
                     opacity: animation,
                   },
-                ]}>
+                ]}
+                pointerEvents="box-none">
                 <Pressable
                   style={styles.menuItemButton}
                   onPress={() => handleItemPress(item.onPress)}>
@@ -101,10 +100,16 @@ const styles = StyleSheet.create({
     bottom: 80,
     right: Spacing.md,
     alignItems: 'flex-end',
+    zIndex: 1000,
   },
   backdrop: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 999,
   },
   fab: {
     width: 56,
@@ -127,6 +132,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
+    zIndex: 1001,
   },
   menuItemButton: {
     flexDirection: 'row',

@@ -1,6 +1,9 @@
 import SQLite, {SQLiteDatabase} from 'react-native-sqlite-storage';
 import {TableSchemas} from '../models/Transaction';
 import {FarmerTableSchema} from '../models/Farmer';
+import {PaymentTableSchema} from '../models/Payment';
+import {MerchantTableSchema} from '../models/Merchant';
+import {CustomerTableSchema} from '../models/Customer';
 
 /**
  * Database Service implementing Single Responsibility Principle
@@ -59,10 +62,13 @@ export class DatabaseService {
 
     try {
       await this.database.executeSql(FarmerTableSchema);
+      await this.database.executeSql(MerchantTableSchema);
+      await this.database.executeSql(CustomerTableSchema);
       await this.database.executeSql(TableSchemas.BUY_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.SELL_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.LEND_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.EXPENSE_TRANSACTIONS);
+      await this.database.executeSql(PaymentTableSchema);
       console.log('All tables created successfully');
     } catch (error) {
       console.error('Error creating tables:', error);

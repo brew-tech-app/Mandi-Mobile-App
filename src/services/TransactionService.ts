@@ -11,7 +11,12 @@ import {BuyTransactionRepository} from '../repositories/BuyTransactionRepository
 import {SellTransactionRepository} from '../repositories/SellTransactionRepository';
 import {LendTransactionRepository} from '../repositories/LendTransactionRepository';
 import {ExpenseTransactionRepository} from '../repositories/ExpenseTransactionRepository';
+import {FarmerRepository} from '../repositories/FarmerRepository';
+import {PaymentRepository} from '../repositories/PaymentRepository';
+import {Farmer} from '../models/Farmer';
+import {Payment} from '../models/Payment';
 import DatabaseService from '../database/DatabaseService';
+import CashBalanceService from './CashBalanceService';
 import AuthService from './AuthService';
 import DailyResetService from './DailyResetService';
 
@@ -19,10 +24,17 @@ import DailyResetService from './DailyResetService';
  * Transaction Service Interface
  * Following Dependency Inversion Principle - depend on abstractions
  */
+export interface StockByGrainType {
+  grainType: string;
+  stock: number;
+}
+
 export interface ITransactionService {
   initializeDatabase(): Promise<void>;
   getDashboardSummary(): Promise<DashboardSummary>;
   getDashboardSummaryByDateRange(startDate: Date, endDate: Date): Promise<DashboardSummary>;
+  getStockSummary(): Promise<number>;
+  getStockByGrainType(): Promise<StockByGrainType[]>;
 }
 
 /**
@@ -35,6 +47,8 @@ export class TransactionService implements ITransactionService {
   private sellRepository!: SellTransactionRepository;
   private lendRepository!: LendTransactionRepository;
   private expenseRepository!: ExpenseTransactionRepository;
+  private farmerRepository!: FarmerRepository;
+  private paymentRepository!: PaymentRepository;
   private dbService: typeof DatabaseService;
 
   constructor() {
@@ -49,7 +63,9 @@ export class TransactionService implements ITransactionService {
     this.buyRepository = new BuyTransactionRepository(db);
     this.sellRepository = new SellTransactionRepository(db);
     this.lendRepository = new LendTransactionRepository(db);
+    this.farmerRepository = new FarmerRepository(db);
     this.expenseRepository = new ExpenseTransactionRepository(db);
+    this.paymentRepository = new PaymentRepository(db);
     
     // Check and perform daily reset if needed
     await DailyResetService.checkAndResetIfNewDay();
@@ -119,8 +135,19 @@ export class TransactionService implements ITransactionService {
     return await this.buyRepository.findById(id);
   }
 
+  public async getBuyTransactionById(id: string): Promise<BuyTransaction | null> {
+    return await this.buyRepository.findById(id);
+  }
+
   public async getAllBuyTransactions(): Promise<BuyTransaction[]> {
     return await this.buyRepository.findAll();
+  }
+
+  public async searchBuyTransactionsByPhone(phone: string): Promise<BuyTransaction[]> {
+    const allTransactions = await this.buyRepository.findAll();
+    return allTransactions.filter(t => 
+      t.supplierPhone && t.supplierPhone.includes(phone)
+    );
   }
 
   public async updateBuyTransaction(
@@ -140,6 +167,10 @@ export class TransactionService implements ITransactionService {
       this.autoDeleteFromCloud(id).catch(console.error);
     }
     return result;
+  }
+
+  public async getFarmerByPhone(phone: string): Promise<Farmer | null> {
+    return await this.farmerRepository.findByPhoneNumber(phone);
   }
 
   public async getPendingBuyTransactions(): Promise<BuyTransaction[]> {
@@ -195,6 +226,24 @@ export class TransactionService implements ITransactionService {
 
   public async getSellTransactionsByBuyer(buyerName: string): Promise<SellTransaction[]> {
     return await this.sellRepository.findByBuyer(buyerName);
+  }
+
+  public async getSellTransactionById(id: string): Promise<SellTransaction | null> {
+    return await this.sellRepository.findById(id);
+  }
+
+  public async getMerchantByPhone(phone: string): Promise<any | null> {
+    const {MerchantRepository} = await import('../repositories/MerchantRepository');
+    const db = await this.dbService.initDatabase();
+    const merchantRepo = new MerchantRepository(db);
+    return await merchantRepo.findByPhoneNumber(phone);
+  }
+
+  public async getCustomerByPhone(phone: string): Promise<any | null> {
+    const {CustomerRepository} = await import('../repositories/CustomerRepository');
+    const db = await this.dbService.initDatabase();
+    const customerRepo = new CustomerRepository(db);
+    return await customerRepo.findByPhoneNumber(phone);
   }
 
   /**
@@ -323,8 +372,29 @@ export class TransactionService implements ITransactionService {
       this.expenseRepository.findAll(),
     ]);
 
-    // Calculate profit (Sell - Buy - Expense)
-    const profit = totalSellAmount - totalBuyAmount - totalExpenseAmount;
+    // Calculate total commissions and labour charges
+    const totalBuyCommission = buyTransactions.reduce(
+      (sum, t) => sum + (t.commissionAmount || 0),
+      0,
+    );
+    // Note: totalSellCommission includes Bill of Supply charges (Arat + Tulak + Mandi Shulk) for Bill of Supply transactions
+    const totalSellCommission = sellTransactions.reduce(
+      (sum, t) => sum + (t.commissionAmount || 0),
+      0,
+    );
+    const totalSellLabourCharges = sellTransactions.reduce(
+      (sum, t) => sum + (t.labourCharges || 0),
+      0,
+    );
+    const totalBuyLabourCharges = buyTransactions.reduce(
+      (sum, t) => sum + (t.labourCharges || 0),
+      0,
+    );
+
+    // Calculate profit using the formula:
+    // Net Profit/Loss = Total Commission(Buy) + Total Commission(Sell) + Labour Charge(Sell) - Expense
+    // Note: Sell Commission includes Bill of Supply charges (Arat + Tulak + Mandi Shulk) for applicable transactions
+    const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
 
     // Get recent transactions (last 10)
     const allTransactions: Transaction[] = [
@@ -346,6 +416,10 @@ export class TransactionService implements ITransactionService {
       totalPendingBuyAmount,
       totalPendingSellAmount,
       totalPendingLendAmount,
+      totalBuyLabourCharges,
+      totalBuyCommission,
+      totalSellCommission,
+      totalSellLabourCharges,
       profit,
       recentTransactions,
     };
@@ -433,8 +507,9 @@ export class TransactionService implements ITransactionService {
     );
 
     // Calculate totals for the date range
+    // Total Buy Amount = Net Payable (Gross Amount - Commission - Labour Charges)
     const totalBuyAmount = buyTransactions.reduce(
-      (sum, t) => sum + t.totalAmount,
+      (sum, t) => sum + t.totalAmount - (t.commissionAmount || 0) - (t.labourCharges || 0),
       0,
     );
     const totalSellAmount = sellTransactions.reduce(
@@ -468,6 +543,7 @@ export class TransactionService implements ITransactionService {
       (sum, t) => sum + (t.commissionAmount || 0),
       0,
     );
+    // Note: totalSellCommission includes Bill of Supply charges (Arat + Tulak + Mandi Shulk) for Bill of Supply transactions
     const totalSellCommission = sellTransactions.reduce(
       (sum, t) => sum + (t.commissionAmount || 0),
       0,
@@ -483,6 +559,7 @@ export class TransactionService implements ITransactionService {
 
     // Calculate profit using the formula:
     // Net Profit/Loss = Total Commission(Buy) + Total Commission(Sell) + Labour Charge(Sell) - Expense
+    // Note: Sell Commission includes Bill of Supply charges (Arat + Tulak + Mandi Shulk) for applicable transactions
     const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
 
     // Get recent transactions from the date range (last 10)
@@ -506,6 +583,9 @@ export class TransactionService implements ITransactionService {
       totalPendingSellAmount,
       totalPendingLendAmount,
       totalBuyLabourCharges,
+      totalBuyCommission,
+      totalSellCommission,
+      totalSellLabourCharges,
       profit,
       recentTransactions,
     };
@@ -536,6 +616,239 @@ export class TransactionService implements ITransactionService {
     const startDate = DailyResetService.getStartOfQuarter();
     const endDate = DailyResetService.getEndOfQuarter();
     return this.getDashboardSummaryByDateRange(startDate, endDate);
+  }
+
+  /**
+   * Add a payment to a buy transaction and update cash balance
+   */
+  public async addBuyPayment(
+    transactionId: string,
+    amount: number,
+    paymentMode: 'CASH' | 'ONLINE' | 'CHEQUE',
+    notes?: string,
+  ): Promise<Payment> {
+    // Get the transaction
+    const transaction = await this.buyRepository.findById(transactionId);
+    if (!transaction) {
+      throw new Error('Transaction not found');
+    }
+
+    // Validate payment amount
+    if (amount <= 0) {
+      throw new Error('Payment amount must be greater than 0');
+    }
+
+    if (amount > transaction.balanceAmount) {
+      throw new Error('Payment amount cannot exceed balance amount');
+    }
+
+    // Create payment record
+    const payment = await this.paymentRepository.create({
+      transactionId,
+      transactionType: 'BUY',
+      amount,
+      paymentDate: new Date().toISOString(),
+      paymentMode,
+      notes,
+    });
+
+    // Update transaction balances
+    const newPaidAmount = transaction.paidAmount + amount;
+    const newBalanceAmount = transaction.balanceAmount - amount;
+    const newPaymentStatus: PaymentStatus = 
+      newBalanceAmount === 0 ? PaymentStatus.COMPLETED :
+      newPaidAmount > 0 ? PaymentStatus.PARTIAL :
+      PaymentStatus.PENDING;
+
+    await this.buyRepository.update(transactionId, {
+      paidAmount: newPaidAmount,
+      balanceAmount: newBalanceAmount,
+      paymentStatus: newPaymentStatus,
+    });
+
+    // Deduct from cash balance
+    const currentBalance = await CashBalanceService.getCurrentBalance();
+    await CashBalanceService.setBalance(currentBalance - amount);
+
+    return payment;
+  }
+
+  /**
+   * Get all payments for a transaction
+   */
+  public async getPaymentsByTransactionId(transactionId: string): Promise<Payment[]> {
+    return await this.paymentRepository.findByTransactionId(transactionId);
+  }
+
+  /**
+   * Get total paid amount for a transaction
+   */
+  public async getTotalPaidForTransaction(transactionId: string): Promise<number> {
+    return await this.paymentRepository.getTotalPaidForTransaction(transactionId);
+  }
+
+  /**
+   * Add a payment to a sell transaction and update cash balance
+   */
+  public async addSellPayment(
+    transactionId: string,
+    amount: number,
+    paymentMode: 'CASH' | 'ONLINE' | 'CHEQUE',
+    notes?: string,
+  ): Promise<Payment> {
+    // Get the transaction
+    const transaction = await this.sellRepository.findById(transactionId);
+    if (!transaction) {
+      throw new Error('Transaction not found');
+    }
+
+    // Validate payment amount
+    if (amount <= 0) {
+      throw new Error('Payment amount must be greater than 0');
+    }
+
+    if (amount > transaction.balanceAmount) {
+      throw new Error('Payment amount cannot exceed balance amount');
+    }
+
+    // Create payment record
+    const payment = await this.paymentRepository.create({
+      transactionId,
+      transactionType: 'SELL',
+      amount,
+      paymentDate: new Date().toISOString(),
+      paymentMode,
+      notes,
+    });
+
+    // Update transaction balances
+    const newReceivedAmount = transaction.receivedAmount + amount;
+    const newBalanceAmount = transaction.balanceAmount - amount;
+    const newPaymentStatus: PaymentStatus = 
+      newBalanceAmount === 0 ? PaymentStatus.COMPLETED :
+      newReceivedAmount > 0 ? PaymentStatus.PARTIAL :
+      PaymentStatus.PENDING;
+
+    await this.sellRepository.update(transactionId, {
+      receivedAmount: newReceivedAmount,
+      balanceAmount: newBalanceAmount,
+      paymentStatus: newPaymentStatus,
+    });
+
+    // Add to cash balance (receiving payment)
+    const currentBalance = await CashBalanceService.getCurrentBalance();
+    await CashBalanceService.setBalance(currentBalance + amount);
+
+    return payment;
+  }
+
+  /**
+   * Delete a payment and reverse the cash balance and transaction updates
+   */
+  public async deletePayment(paymentId: string): Promise<boolean> {
+    const payment = await this.paymentRepository.findById(paymentId);
+    if (!payment) {
+      throw new Error('Payment not found');
+    }
+
+    if (payment.transactionType === 'BUY') {
+      // Get the buy transaction
+      const transaction = await this.buyRepository.findById(payment.transactionId);
+      if (!transaction) {
+        throw new Error('Transaction not found');
+      }
+
+      // Reverse the payment
+      const newPaidAmount = transaction.paidAmount - payment.amount;
+      const newBalanceAmount = transaction.balanceAmount + payment.amount;
+      const newPaymentStatus: PaymentStatus = 
+        newBalanceAmount === transaction.totalAmount ? PaymentStatus.PENDING :
+        newPaidAmount > 0 ? PaymentStatus.PARTIAL :
+        PaymentStatus.PENDING;
+
+      await this.buyRepository.update(payment.transactionId, {
+        paidAmount: newPaidAmount,
+        balanceAmount: newBalanceAmount,
+        paymentStatus: newPaymentStatus,
+      });
+
+      // Add back to cash balance
+      const currentBalance = await CashBalanceService.getCurrentBalance();
+      await CashBalanceService.setBalance(currentBalance + payment.amount);
+    } else if (payment.transactionType === 'SELL') {
+      // Get the sell transaction
+      const transaction = await this.sellRepository.findById(payment.transactionId);
+      if (!transaction) {
+        throw new Error('Transaction not found');
+      }
+
+      // Reverse the payment
+      const newReceivedAmount = transaction.receivedAmount - payment.amount;
+      const newBalanceAmount = transaction.balanceAmount + payment.amount;
+      const newPaymentStatus: PaymentStatus = 
+        newBalanceAmount === transaction.totalAmount ? PaymentStatus.PENDING :
+        newReceivedAmount > 0 ? PaymentStatus.PARTIAL :
+        PaymentStatus.PENDING;
+
+      await this.sellRepository.update(payment.transactionId, {
+        receivedAmount: newReceivedAmount,
+        balanceAmount: newBalanceAmount,
+        paymentStatus: newPaymentStatus,
+      });
+
+      // Deduct from cash balance (reversing received payment)
+      const currentBalance = await CashBalanceService.getCurrentBalance();
+      await CashBalanceService.setBalance(currentBalance - payment.amount);
+    }
+
+    // Delete the payment record
+    return await this.paymentRepository.delete(paymentId);
+  }
+
+  /**
+   * Get total stock (running total)
+   * Stock = Total Buy Quantity - Total Sell Quantity
+   */
+  public async getStockSummary(): Promise<number> {
+    const buyTransactions = await this.buyRepository.findAll();
+    const sellTransactions = await this.sellRepository.findAll();
+
+    const totalBuyQuantity = buyTransactions.reduce((sum, tx) => sum + tx.quantity, 0);
+    const totalSellQuantity = sellTransactions.reduce((sum, tx) => sum + tx.quantity, 0);
+
+    return totalBuyQuantity - totalSellQuantity;
+  }
+
+  /**
+   * Get stock breakdown by grain type
+   * Groups stock by grain type and calculates running total for each
+   */
+  public async getStockByGrainType(): Promise<StockByGrainType[]> {
+    const buyTransactions = await this.buyRepository.findAll();
+    const sellTransactions = await this.sellRepository.findAll();
+
+    // Group buy transactions by grain type
+    const buyByGrain = buyTransactions.reduce((acc, tx) => {
+      const grain = tx.grainType.trim().toLowerCase();
+      acc[grain] = (acc[grain] || 0) + tx.quantity;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Subtract sell transactions
+    const stockByGrain = sellTransactions.reduce((acc, tx) => {
+      const grain = tx.grainType.trim().toLowerCase();
+      acc[grain] = (acc[grain] || 0) - tx.quantity;
+      return acc;
+    }, buyByGrain);
+
+    // Convert to array and capitalize grain type names
+    return Object.entries(stockByGrain)
+      .map(([grainType, stock]) => ({
+        grainType: grainType.charAt(0).toUpperCase() + grainType.slice(1),
+        stock,
+      }))
+      .filter(item => item.stock !== 0) // Filter out zero stock items
+      .sort((a, b) => b.stock - a.stock); // Sort by stock descending
   }
 }
 

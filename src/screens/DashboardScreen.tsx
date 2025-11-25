@@ -4,7 +4,7 @@ import {SummaryCard} from '../components/SummaryCard';
 import {TransactionCard} from '../components/TransactionCard';
 import {FloatingActionButton} from '../components/FloatingActionButton';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
-import TransactionService from '../services/TransactionService';
+import TransactionService, {StockByGrainType} from '../services/TransactionService';
 import {DashboardSummary} from '../models/Transaction';
 import {formatCurrency, formatQuantity, formatDate} from '../utils/helpers';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -26,6 +26,11 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
   const [isBalanceModalVisible, setIsBalanceModalVisible] = useState(false);
   const [balanceInput, setBalanceInput] = useState('');
   const [dateRange, setDateRange] = useState({start: new Date(), end: new Date()});
+  const [totalStock, setTotalStock] = useState<number>(0);
+  const [stockByGrainType, setStockByGrainType] = useState<StockByGrainType[]>([]);
+  const [isStockModalVisible, setIsStockModalVisible] = useState(false);
+  const [isProfitModalVisible, setIsProfitModalVisible] = useState(false);
+  const [profitTab, setProfitTab] = useState<'buy' | 'sell' | 'interest'>('buy');
 
   const loadDashboardData = async () => {
     try {
@@ -41,6 +46,14 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
       // Load current cash balance
       const balance = await CashBalanceService.getCurrentBalance();
       setCurrentCashBalance(balance);
+
+      // Load stock summary
+      const stock = await TransactionService.getStockSummary();
+      setTotalStock(stock);
+
+      // Load stock by grain type
+      const stockBreakdown = await TransactionService.getStockByGrainType();
+      setStockByGrainType(stockBreakdown);
     } catch (error) {
       console.error('Error loading dashboard:', error);
     } finally {
@@ -157,24 +170,22 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
 
   const fabItems = [
     {
-      label: 'Buy Transaction',
+      label: 'Buy',
       color: Colors.buy,
-      onPress: () => navigation.navigate('BuyTransactions', {
-        screen: 'AddBuyTransaction'
-      }),
+      onPress: () => navigation.navigate('AddBuyTransactionModal'),
     },
     {
-      label: 'Sell Transaction',
+      label: 'Sell',
       color: Colors.sell,
-      onPress: () => navigation.navigate('AddSellTransaction'),
+      onPress: () => navigation.navigate('AddSellTransactionModal'),
     },
     {
-      label: 'Lend Transaction',
+      label: 'Lend',
       color: Colors.lend,
-      onPress: () => navigation.navigate('AddLendTransaction'),
+      onPress: () => navigation.navigate('AddLendTransactionModal'),
     },
     {
-      label: 'Expense Transaction',
+      label: 'Expense',
       color: Colors.expense,
       onPress: () => navigation.navigate('AddExpenseTransaction'),
     },
@@ -186,7 +197,6 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
   const endDate = formatDate(dateRange.end);
   
   // Calculate running totals
-  const totalStock = 0; // This should be calculated from inventory/stock management
   const runningLoans = summary?.totalPendingLendAmount || 0;
   const runningPayables = summary?.totalPendingBuyAmount || 0;
   const runningReceivables = summary?.totalPendingSellAmount || 0;
@@ -220,7 +230,24 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               value={searchQuery}
               onChangeText={setSearchQuery}
               keyboardType="phone-pad"
+              onSubmitEditing={() => {
+                if (searchQuery.trim()) {
+                  navigation.navigate('BuyTransactions', {
+                    screen: 'BuyTransactionsList',
+                    params: { searchPhone: searchQuery.trim() }
+                  });
+                  setSearchQuery('');
+                }
+              }}
+              returnKeyType="search"
             />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                style={styles.clearButton}>
+                <Text style={styles.clearButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -290,51 +317,41 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           </View>
         </View>
 
-        {/* Two Column Layout */}
-        <View style={styles.twoColumnContainer}>
-          {/* Left Stack */}
-          <View style={styles.leftStack}>
+        {/* Daily Operational Summary */}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Daily Operational Summary</Text>
+          
+          {/* Row 1 */}
+          <View style={styles.cardRow}>
             {/* Total Purchases */}
             <View style={[styles.stackCard, styles.yellowCard]}>
               <Text style={styles.metricIcon}>💰</Text>
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalBuyAmount || 0)}</Text>
-              <Text style={styles.metricLabel}>Total Purchases (Cost)</Text>
+              <Text style={styles.metricLabel}>Total Purchases (Net Payable)</Text>
             </View>
 
-            {/* Net Profit/Loss */}
-            <View style={[styles.stackCard, {backgroundColor: isProfitable ? '#DCFCE7' : '#FEE2E2'}]}>
-              <Text style={styles.metricIcon}>{isProfitable ? '📊' : '📉'}</Text>
-              <Text style={[styles.metricValue, {color: isProfitable ? Colors.success : Colors.error}]}>
-                {formatCurrency(profit)}
-              </Text>
-              <Text style={styles.metricLabel}>Net Profit/Loss {isProfitable ? '↗' : '↘'}</Text>
-            </View>
-
-            {/* Stock - Running Total */}
-            <View style={[styles.stackCard, styles.blueCard]}>
-              <Text style={styles.metricIcon}>📋</Text>
-              <Text style={styles.metricValue}>{totalStock.toFixed(2)} Qtl</Text>
-              <Text style={styles.metricLabel}>Stock (Running Total)</Text>
-            </View>
-
-            {/* Total Payables - Running Total */}
-            <View style={[styles.stackCard, styles.redLightCard]}>
-              <Text style={styles.metricIcon}>📅</Text>
-              <Text style={[styles.metricValue, {color: Colors.error}]}>
-                {formatCurrency(runningPayables)}
-              </Text>
-              <Text style={styles.metricLabel}>Total Payables (Running)</Text>
-            </View>
-          </View>
-
-          {/* Right Stack */}
-          <View style={styles.rightStack}>
             {/* Total Sales */}
             <View style={[styles.stackCard, styles.greenCard]}>
               <Text style={styles.metricIcon}>📈</Text>
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalSellAmount || 0)}</Text>
               <Text style={styles.metricLabel}>Total Sales</Text>
             </View>
+          </View>
+
+          {/* Row 2 */}
+          <View style={styles.cardRow}>
+            {/* Net Profit/Loss */}
+            <TouchableOpacity 
+              style={[styles.stackCard, {backgroundColor: isProfitable ? '#DCFCE7' : '#FEE2E2'}]}
+              onPress={() => setIsProfitModalVisible(true)}
+              activeOpacity={0.8}>
+              <Text style={styles.metricIcon}>{isProfitable ? '📊' : '📉'}</Text>
+              <Text style={[styles.metricValue, {color: isProfitable ? Colors.success : Colors.error}]}>
+                {formatCurrency(profit)}
+              </Text>
+              <Text style={styles.metricLabel}>Net Profit/Loss {isProfitable ? '↗' : '↘'}</Text>
+              <Text style={styles.tapHint}>Tap to view breakdown</Text>
+            </TouchableOpacity>
 
             {/* Labour Charges */}
             <View style={[styles.stackCard, styles.purpleCard]}>
@@ -342,12 +359,48 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalBuyLabourCharges || 0)}</Text>
               <Text style={styles.metricLabel}>Total Labour Charges</Text>
             </View>
+          </View>
+        </View>
+
+        {/* Stocks & Loans */}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Stocks & Loans</Text>
+          
+          {/* Row 3 */}
+          <View style={styles.cardRow}>
+            {/* Stock - Running Total */}
+            <TouchableOpacity 
+              style={[styles.stackCard, styles.blueCard]}
+              onPress={() => setIsStockModalVisible(true)}
+              activeOpacity={0.8}>
+              <Text style={styles.metricIcon}>📋</Text>
+              <Text style={styles.metricValue}>{totalStock.toFixed(2)} Qtl</Text>
+              <Text style={styles.metricLabel}>Stock (Running Total)</Text>
+              <Text style={styles.tapHint}>Tap to view by grain type</Text>
+            </TouchableOpacity>
 
             {/* Outstanding Loans - Running Total */}
             <View style={[styles.stackCard, styles.redCard]}>
               <Text style={styles.metricIcon}>📉</Text>
               <Text style={styles.metricValue}>{formatCurrency(runningLoans)}</Text>
               <Text style={styles.metricLabel}>Outstanding Loans (Running)</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Payables & Receivables */}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Payables & Receivables</Text>
+          
+          {/* Row 4 */}
+          <View style={styles.cardRow}>
+            {/* Total Payables - Running Total */}
+            <View style={[styles.stackCard, styles.redLightCard]}>
+              <Text style={styles.metricIcon}>📅</Text>
+              <Text style={[styles.metricValue, {color: Colors.error}]}>
+                {formatCurrency(runningPayables)}
+              </Text>
+              <Text style={styles.metricLabel}>Total Payables (Running)</Text>
             </View>
 
             {/* Total Receivables - Running Total */}
@@ -406,6 +459,183 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
                 <Text style={[styles.modalButtonText, {color: Colors.textLight}]}>Save</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Stock Detail Modal */}
+      <Modal
+        visible={isStockModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsStockModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.stockModalContent}>
+            <Text style={styles.modalTitle}>Stock Breakdown</Text>
+            <Text style={styles.stockTotalText}>
+              Total Stock: {totalStock.toFixed(2)} Qtl
+            </Text>
+            
+            <ScrollView style={styles.stockListContainer} showsVerticalScrollIndicator={false}>
+              {stockByGrainType.length > 0 ? (
+                stockByGrainType.map((item, index) => (
+                  <View key={index} style={styles.stockItem}>
+                    <View style={styles.stockItemLeft}>
+                      <Text style={styles.stockGrainIcon}>🌾</Text>
+                      <Text style={styles.stockGrainName}>{item.grainType}</Text>
+                    </View>
+                    <View style={styles.stockItemRight}>
+                      <Text style={[
+                        styles.stockQuantity,
+                        item.stock < 0 && styles.stockNegative
+                      ]}>
+                        {item.stock.toFixed(2)} Qtl
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyStockText}>No stock available</Text>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.stockCloseButton}
+              onPress={() => setIsStockModalVisible(false)}>
+              <Text style={styles.stockCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Profit Breakdown Modal */}
+      <Modal
+        visible={isProfitModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsProfitModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.profitModalContent}>
+            <Text style={styles.modalTitle}>Profit/Loss Breakdown</Text>
+            <Text style={styles.profitTotalText}>
+              Net Profit/Loss: {formatCurrency(profit)}
+            </Text>
+            
+            {/* Tabs */}
+            <View style={styles.profitTabContainer}>
+              <TouchableOpacity
+                style={[styles.profitTab, profitTab === 'buy' && styles.profitTabActive]}
+                onPress={() => setProfitTab('buy')}>
+                <Text style={[styles.profitTabText, profitTab === 'buy' && styles.profitTabTextActive]}>
+                  Buy
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.profitTab, profitTab === 'sell' && styles.profitTabActive]}
+                onPress={() => setProfitTab('sell')}>
+                <Text style={[styles.profitTabText, profitTab === 'sell' && styles.profitTabTextActive]}>
+                  Sell
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.profitTab, profitTab === 'interest' && styles.profitTabActive]}
+                onPress={() => setProfitTab('interest')}>
+                <Text style={[styles.profitTabText, profitTab === 'interest' && styles.profitTabTextActive]}>
+                  Interest
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Tab Content */}
+            <ScrollView style={styles.profitContentContainer} showsVerticalScrollIndicator={false}>
+              {profitTab === 'buy' && (
+                <View>
+                  <View style={styles.profitSummaryCard}>
+                    <Text style={styles.profitSummaryLabel}>Total Commission (Buy)</Text>
+                    <Text style={styles.profitSummaryValue}>
+                      {formatCurrency(summary?.totalBuyCommission || 0)}
+                    </Text>
+                  </View>
+                  <Text style={styles.profitSectionTitle}>Commission Transactions</Text>
+                  {summary?.recentTransactions
+                    .filter(t => t.transactionType === 'BUY' && (t as any).commissionAmount > 0)
+                    .map((transaction, index) => (
+                      <View key={index} style={styles.profitTransactionCard}>
+                        <View style={styles.profitTransactionLeft}>
+                          <Text style={styles.profitTransactionTitle}>{(transaction as any).supplierName}</Text>
+                          <Text style={styles.profitTransactionSubtitle}>
+                            {(transaction as any).grainType} • {formatDate(transaction.date)}
+                          </Text>
+                        </View>
+                        <Text style={styles.profitTransactionAmount}>
+                          {formatCurrency((transaction as any).commissionAmount || 0)}
+                        </Text>
+                      </View>
+                    ))}
+                </View>
+              )}
+
+              {profitTab === 'sell' && (
+                <View>
+                  <View style={styles.profitSummaryCard}>
+                    <Text style={styles.profitSummaryLabel}>Total Commission (Sell)</Text>
+                    <Text style={styles.profitSummaryValue}>
+                      {formatCurrency(summary?.totalSellCommission || 0)}
+                    </Text>
+                  </View>
+                  <View style={styles.profitSummaryCard}>
+                    <Text style={styles.profitSummaryLabel}>Total Labour Charges (Sell)</Text>
+                    <Text style={styles.profitSummaryValue}>
+                      {formatCurrency(summary?.totalSellLabourCharges || 0)}
+                    </Text>
+                  </View>
+                  <View style={styles.profitSummaryCard}>
+                    <Text style={styles.profitSummaryLabel}>Total (Commission + Labour)</Text>
+                    <Text style={[styles.profitSummaryValue, {color: Colors.success, fontSize: 20}]}>
+                      {formatCurrency((summary?.totalSellCommission || 0) + (summary?.totalSellLabourCharges || 0))}
+                    </Text>
+                  </View>
+                  <Text style={styles.profitSectionTitle}>Sell Transactions</Text>
+                  {summary?.recentTransactions
+                    .filter(t => t.transactionType === 'SELL' && ((t as any).commissionAmount > 0 || (t as any).labourCharges > 0))
+                    .map((transaction, index) => (
+                      <View key={index} style={styles.profitTransactionCard}>
+                        <View style={styles.profitTransactionLeft}>
+                          <Text style={styles.profitTransactionTitle}>{(transaction as any).buyerName}</Text>
+                          <Text style={styles.profitTransactionSubtitle}>
+                            {(transaction as any).grainType} • {formatDate(transaction.date)}
+                          </Text>
+                          <Text style={styles.profitTransactionDetails}>
+                            Commission: {formatCurrency((transaction as any).commissionAmount || 0)} | 
+                            Labour: {formatCurrency((transaction as any).labourCharges || 0)}
+                          </Text>
+                        </View>
+                        <Text style={styles.profitTransactionAmount}>
+                          {formatCurrency(((transaction as any).commissionAmount || 0) + ((transaction as any).labourCharges || 0))}
+                        </Text>
+                      </View>
+                    ))}
+                </View>
+              )}
+
+              {profitTab === 'interest' && (
+                <View>
+                  <View style={styles.profitSummaryCard}>
+                    <Text style={styles.profitSummaryLabel}>Interest Feature</Text>
+                    <Text style={styles.profitSummaryValue}>Coming Soon</Text>
+                  </View>
+                  <Text style={styles.profitEmptyText}>
+                    Interest tracking for lend transactions will be available in a future update.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.stockCloseButton}
+              onPress={() => setIsProfitModalVisible(false)}>
+              <Text style={styles.stockCloseButtonText}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -481,6 +711,15 @@ const styles = StyleSheet.create({
     flex: 1,
     ...Typography.body2,
     color: Colors.textPrimary,
+  },
+  clearButton: {
+    padding: Spacing.xs,
+    marginLeft: Spacing.xs,
+  },
+  clearButtonText: {
+    fontSize: 18,
+    color: Colors.textSecondary,
+    fontWeight: 'bold',
   },
   
   // Balance Card
@@ -566,20 +805,13 @@ const styles = StyleSheet.create({
   },
   
   // Two Column Layout
-  twoColumnContainer: {
+  cardRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
-    marginBottom: Spacing.lg,
-  },
-  leftStack: {
-    flex: 1,
-    gap: Spacing.sm,
-  },
-  rightStack: {
-    flex: 1,
-    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
   },
   stackCard: {
+    flex: 1,
     padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     ...Shadow.small,
@@ -632,6 +864,13 @@ const styles = StyleSheet.create({
   metricLabel: {
     ...Typography.caption,
     color: Colors.textSecondary,
+  },
+  tapHint: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+    fontSize: 10,
+    fontStyle: 'italic',
   },
   
   // Section
@@ -744,5 +983,192 @@ const styles = StyleSheet.create({
   modalButtonText: {
     ...Typography.button,
     color: Colors.textPrimary,
+  },
+  
+  // Stock Modal Styles
+  stockModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    ...Shadow.large,
+  },
+  stockTotalText: {
+    ...Typography.h4,
+    fontWeight: 'bold',
+    color: Colors.primary,
+    marginBottom: Spacing.lg,
+    textAlign: 'center',
+  },
+  stockListContainer: {
+    maxHeight: 400,
+    marginBottom: Spacing.lg,
+  },
+  stockItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    ...Shadow.small,
+  },
+  stockItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  stockGrainIcon: {
+    fontSize: 24,
+    marginRight: Spacing.sm,
+  },
+  stockGrainName: {
+    ...Typography.body1,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  stockItemRight: {
+    alignItems: 'flex-end',
+  },
+  stockQuantity: {
+    ...Typography.body1,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.success,
+  },
+  stockNegative: {
+    color: Colors.error,
+  },
+  emptyStockText: {
+    ...Typography.body1,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginVertical: Spacing.xl,
+  },
+  stockCloseButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+  },
+  stockCloseButtonText: {
+    ...Typography.button,
+    color: Colors.textLight,
+  },
+  
+  // Profit Modal Styles
+  profitModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    width: '100%',
+    maxWidth: 550,
+    maxHeight: '85%',
+    ...Shadow.large,
+  },
+  profitTotalText: {
+    ...Typography.h4,
+    fontWeight: 'bold',
+    color: Colors.primary,
+    marginBottom: Spacing.lg,
+    textAlign: 'center',
+  },
+  profitTabContainer: {
+    flexDirection: 'row',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: 4,
+    marginBottom: Spacing.lg,
+  },
+  profitTab: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center',
+  },
+  profitTabActive: {
+    backgroundColor: Colors.primary,
+  },
+  profitTabText: {
+    ...Typography.body2,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  profitTabTextActive: {
+    color: Colors.textLight,
+  },
+  profitContentContainer: {
+    maxHeight: 450,
+    marginBottom: Spacing.lg,
+  },
+  profitSummaryCard: {
+    backgroundColor: Colors.background,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    ...Shadow.small,
+  },
+  profitSummaryLabel: {
+    ...Typography.body2,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  profitSummaryValue: {
+    ...Typography.h4,
+    fontWeight: 'bold',
+    color: Colors.success,
+  },
+  profitSectionTitle: {
+    ...Typography.body1,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  profitTransactionCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    ...Shadow.small,
+  },
+  profitTransactionLeft: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  profitTransactionTitle: {
+    ...Typography.body1,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  profitTransactionSubtitle: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: 2,
+  },
+  profitTransactionDetails: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    fontSize: 11,
+  },
+  profitTransactionAmount: {
+    ...Typography.body1,
+    fontWeight: 'bold',
+    color: Colors.success,
+  },
+  profitEmptyText: {
+    ...Typography.body2,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.lg,
+    fontStyle: 'italic',
   },
 });

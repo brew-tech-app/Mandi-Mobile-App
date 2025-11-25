@@ -1,0 +1,921 @@
+import React, {useState, useEffect} from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  TouchableOpacity,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
+import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
+import {CustomButton} from '../components/CustomButton';
+import TransactionService from '../services/TransactionService';
+import {PaymentStatus} from '../models/Transaction';
+import DatabaseService from '../database/DatabaseService';
+import {MerchantRepository} from '../repositories/MerchantRepository';
+import {CustomerRepository} from '../repositories/CustomerRepository';
+
+type BillType = 'NORMAL' | 'BILL_OF_SUPPLY';
+type PartyType = 'MERCHANT' | 'CUSTOMER';
+
+/**
+ * Add Sell Transaction Screen
+ * Form to create new grain sale transaction
+ */
+export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
+  // Date & Bill Details
+  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [billType, setBillType] = useState<BillType>('NORMAL');
+  const [partyType, setPartyType] = useState<PartyType>('MERCHANT');
+  
+  // Party Details
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [firmName, setFirmName] = useState('');
+  const [gstin, setGstin] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [address, setAddress] = useState('');
+  const [partyExists, setPartyExists] = useState(false);
+  const [checkingParty, setCheckingParty] = useState(false);
+  const [showPartyFields, setShowPartyFields] = useState(false);
+  
+  // Grain Details
+  const [grainType, setGrainType] = useState('');
+  const [numberOfBags, setNumberOfBags] = useState('');
+  const [weightPerBag, setWeightPerBag] = useState('');
+  const [pricePerQuintal, setPricePerQuintal] = useState('');
+  
+  // Fees & Charges
+  const [commissionPercent, setCommissionPercent] = useState('');
+  const [labourCharge, setLabourCharge] = useState('');
+  
+  // Bill of Supply Charges (for Merchant only)
+  const [aratPercent, setAratPercent] = useState('');
+  const [tulak, setTulak] = useState('');
+  
+  const [loading, setLoading] = useState(false);
+  const [merchantRepository, setMerchantRepository] = useState<MerchantRepository | null>(null);
+  const [customerRepository, setCustomerRepository] = useState<CustomerRepository | null>(null);
+
+  useEffect(() => {
+    initializeRepositories();
+  }, []);
+
+  const initializeRepositories = async () => {
+    const db = await DatabaseService.initDatabase();
+    setMerchantRepository(new MerchantRepository(db));
+    setCustomerRepository(new CustomerRepository(db));
+  };
+
+  // Check party when phone number changes
+  useEffect(() => {
+    if (phoneNumber.length === 10) {
+      checkPartyExists();
+    } else {
+      resetPartyDetails();
+    }
+  }, [phoneNumber, partyType]);
+
+  // Auto-fill Tulak with weight for Bill of Supply
+  useEffect(() => {
+    if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
+      const weight = calculateWeight();
+      if (weight > 0) {
+        setTulak(weight.toFixed(2));
+      }
+    }
+  }, [numberOfBags, weightPerBag, billType, partyType]);
+
+  const resetPartyDetails = () => {
+    setPartyExists(false);
+    setShowPartyFields(false);
+    setFirmName('');
+    setGstin('');
+    setCustomerName('');
+    setAddress('');
+  };
+
+  const checkPartyExists = async () => {
+    if (partyType === 'MERCHANT' && !merchantRepository) return;
+    if (partyType === 'CUSTOMER' && !customerRepository) return;
+    
+    setCheckingParty(true);
+    try {
+      if (partyType === 'MERCHANT') {
+        const merchant = await merchantRepository!.findByPhoneNumber(phoneNumber);
+        if (merchant) {
+          setPartyExists(true);
+          setFirmName(merchant.firmName);
+          setGstin(merchant.gstin);
+          setAddress(merchant.address);
+          setShowPartyFields(false);
+        } else {
+          setPartyExists(false);
+          setShowPartyFields(true);
+        }
+      } else {
+        const customer = await customerRepository!.findByPhoneNumber(phoneNumber);
+        if (customer) {
+          setPartyExists(true);
+          setCustomerName(customer.name);
+          setAddress(customer.address);
+          setShowPartyFields(false);
+        } else {
+          setPartyExists(false);
+          setShowPartyFields(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking party:', error);
+    } finally {
+      setCheckingParty(false);
+    }
+  };
+
+  // Calculations
+  const calculateWeight = (): number => {
+    const bags = parseFloat(numberOfBags) || 0;
+    const weight = parseFloat(weightPerBag) || 0;
+    return (bags * weight) / 100;
+  };
+
+  const calculateGrossAmount = (): number => {
+    const weight = calculateWeight();
+    const price = parseFloat(pricePerQuintal) || 0;
+    return parseFloat((weight * price).toFixed(2));
+  };
+
+  const calculateCommission = (): number => {
+    const grossAmount = calculateGrossAmount();
+    const commission = parseFloat(commissionPercent) || 0;
+    return parseFloat(((commission * grossAmount) / 100).toFixed(2));
+  };
+
+  // Bill of Supply calculations
+  const calculateArat = (): number => {
+    if (billType !== 'BILL_OF_SUPPLY' || partyType !== 'MERCHANT') return 0;
+    const grossAmount = calculateGrossAmount();
+    const arat = parseFloat(aratPercent) || 0;
+    return parseFloat(((arat * grossAmount) / 100).toFixed(2));
+  };
+
+  const calculateMandiShulk = (): number => {
+    if (billType !== 'BILL_OF_SUPPLY' || partyType !== 'MERCHANT') return 0;
+    const grossAmount = calculateGrossAmount();
+    return parseFloat(((1.5 * grossAmount) / 100).toFixed(2));
+  };
+
+  const calculateNetReceivable = (): number => {
+    const grossAmount = calculateGrossAmount();
+    
+    if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
+      // Bill of Supply: Gross + Arat + Tulak + Mandi Shulk
+      const arat = calculateArat();
+      const tulakAmount = parseFloat(tulak) || 0;
+      const mandiShulk = calculateMandiShulk();
+      return parseFloat((grossAmount + arat + tulakAmount + mandiShulk).toFixed(2));
+    } else {
+      // Normal: Gross + Commission + Labour
+      const commission = calculateCommission();
+      const labour = parseFloat(labourCharge) || 0;
+      return parseFloat((grossAmount + commission + labour).toFixed(2));
+    }
+  };
+
+  const validateForm = (): boolean => {
+    if (phoneNumber.length !== 10) {
+      Alert.alert('Validation Error', 'Please enter valid 10-digit phone number');
+      return false;
+    }
+    
+    if (partyType === 'MERCHANT') {
+      if (!partyExists && !firmName.trim()) {
+        Alert.alert('Validation Error', 'Please enter firm name');
+        return false;
+      }
+      if (!partyExists && !gstin.trim()) {
+        Alert.alert('Validation Error', 'Please enter GSTIN number');
+        return false;
+      }
+    } else {
+      if (!partyExists && !customerName.trim()) {
+        Alert.alert('Validation Error', 'Please enter customer name');
+        return false;
+      }
+    }
+    
+    if (!partyExists && !address.trim()) {
+      Alert.alert('Validation Error', 'Please enter address');
+      return false;
+    }
+    
+    // Grain details validation for both Normal and Bill of Supply
+    if (!grainType.trim()) {
+      Alert.alert('Validation Error', 'Please enter grain type');
+      return false;
+    }
+    if (!numberOfBags || parseFloat(numberOfBags) <= 0) {
+      Alert.alert('Validation Error', 'Please enter valid number of bags');
+      return false;
+    }
+    if (!weightPerBag || parseFloat(weightPerBag) <= 0) {
+      Alert.alert('Validation Error', 'Please enter valid weight per bag');
+      return false;
+    }
+    if (!pricePerQuintal || parseFloat(pricePerQuintal) <= 0) {
+      Alert.alert('Validation Error', 'Please enter valid price per quintal');
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
+    if (partyType === 'MERCHANT' && !merchantRepository) {
+      Alert.alert('Error', 'System not ready. Please try again.');
+      return;
+    }
+    if (partyType === 'CUSTOMER' && !customerRepository) {
+      Alert.alert('Error', 'System not ready. Please try again.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Save party if new
+      if (!partyExists) {
+        if (partyType === 'MERCHANT') {
+          await merchantRepository!.create({
+            phoneNumber: phoneNumber,
+            firmName: firmName.trim(),
+            gstin: gstin.trim(),
+            address: address.trim(),
+          });
+        } else {
+          await customerRepository!.create({
+            phoneNumber: phoneNumber,
+            name: customerName.trim(),
+            address: address.trim(),
+          });
+        }
+      }
+
+      // Create sell transaction
+      const weight = calculateWeight();
+      const grossAmount = calculateGrossAmount();
+      const netReceivable = calculateNetReceivable();
+
+      const buyerName = partyType === 'MERCHANT' ? firmName.trim() : customerName.trim();
+      
+      let commission = 0;
+      let labour = 0;
+      let description = '';
+
+      if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
+        // Bill of Supply charges
+        const arat = calculateArat();
+        const tulakAmount = parseFloat(tulak) || 0;
+        const mandiShulk = calculateMandiShulk();
+        commission = arat + tulakAmount + mandiShulk; // Store total charges in commission
+        labour = 0;
+        description = `Bill of Supply: ${grainType} - ${numberOfBags} bags × ${weightPerBag}kg @ ₹${pricePerQuintal}/qt | Arat: ₹${arat.toFixed(2)}, Tulak: ₹${tulakAmount.toFixed(2)}, Mandi Shulk: ₹${mandiShulk.toFixed(2)}`;
+      } else {
+        // Normal transaction charges
+        commission = calculateCommission();
+        labour = parseFloat(labourCharge) || 0;
+        description = `${grainType}: ${numberOfBags} bags × ${weightPerBag}kg @ ₹${pricePerQuintal}/qt`;
+      }
+
+      await TransactionService.createSellTransaction({
+        buyerName,
+        buyerPhone: phoneNumber,
+        grainType: grainType,
+        quantity: weight,
+        ratePerQuintal: parseFloat(pricePerQuintal) || 0,
+        totalAmount: grossAmount,
+        receivedAmount: 0,
+        balanceAmount: netReceivable,
+        paymentStatus: PaymentStatus.PENDING,
+        commissionAmount: commission,
+        labourCharges: labour,
+        date: transactionDate,
+        description,
+      });
+
+      Alert.alert(
+        'Success',
+        'Sell transaction created successfully',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Error creating sell transaction:', error);
+      Alert.alert('Error', 'Failed to create transaction. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const totalWeight = calculateWeight();
+  const grossAmount = calculateGrossAmount();
+  const commission = calculateCommission();
+  const netReceivable = calculateNetReceivable();
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Add Sell Transaction</Text>
+          <Text style={styles.subtitle}>Sale grain to merchant/customer</Text>
+        </View>
+
+        {/* Date Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📅 Date</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Transaction Date *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={Colors.textSecondary}
+              value={transactionDate}
+              onChangeText={setTransactionDate}
+            />
+          </View>
+        </View>
+
+        {/* Bill Type Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📄 Bill Type</Text>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.typeButton, billType === 'NORMAL' && styles.typeButtonActive]}
+              onPress={() => setBillType('NORMAL')}>
+              <Text style={[styles.typeButtonText, billType === 'NORMAL' && styles.typeButtonTextActive]}>
+                Normal
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.typeButton, 
+                billType === 'BILL_OF_SUPPLY' && styles.typeButtonActive,
+                partyType === 'CUSTOMER' && styles.typeButtonDisabled
+              ]}
+              onPress={() => {
+                if (partyType === 'CUSTOMER') {
+                  Alert.alert('Not Allowed', 'Bill of Supply is only applicable for Merchants');
+                  return;
+                }
+                setBillType('BILL_OF_SUPPLY');
+              }}
+              disabled={partyType === 'CUSTOMER'}>
+              <Text style={[
+                styles.typeButtonText, 
+                billType === 'BILL_OF_SUPPLY' && styles.typeButtonTextActive,
+                partyType === 'CUSTOMER' && styles.typeButtonTextDisabled
+              ]}>
+                Bill of Supply
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {billType === 'BILL_OF_SUPPLY' && (
+            <Text style={styles.hint}>Bill of Supply is only available for Merchant transactions</Text>
+          )}
+        </View>
+
+        {/* Party Type Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>👥 Party Type</Text>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.typeButton, partyType === 'MERCHANT' && styles.typeButtonActive]}
+              onPress={() => {
+                setPartyType('MERCHANT');
+                resetPartyDetails();
+              }}>
+              <Text style={[styles.typeButtonText, partyType === 'MERCHANT' && styles.typeButtonTextActive]}>
+                Merchant
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.typeButton, partyType === 'CUSTOMER' && styles.typeButtonActive]}
+              onPress={() => {
+                setPartyType('CUSTOMER');
+                resetPartyDetails();
+                // Reset to NORMAL if Bill of Supply was selected
+                if (billType === 'BILL_OF_SUPPLY') {
+                  setBillType('NORMAL');
+                }
+              }}>
+              <Text style={[styles.typeButtonText, partyType === 'CUSTOMER' && styles.typeButtonTextActive]}>
+                Customer
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Party Details Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {partyType === 'MERCHANT' ? '🏢 Merchant Details' : '👤 Customer Details'}
+          </Text>
+          
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Phone Number *</Text>
+            <View style={styles.phoneInputContainer}>
+              <TextInput
+                style={[styles.input, checkingParty && styles.inputDisabled]}
+                placeholder="Enter 10-digit phone number"
+                placeholderTextColor={Colors.textSecondary}
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+                maxLength={10}
+                editable={!checkingParty}
+              />
+              {checkingParty && (
+                <ActivityIndicator size="small" color={Colors.primary} style={styles.phoneLoader} />
+              )}
+            </View>
+            {partyExists && (
+              <Text style={styles.successText}>
+                ✓ {partyType === 'MERCHANT' ? 'Merchant' : 'Customer'} found in database
+              </Text>
+            )}
+            {showPartyFields && (
+              <Text style={styles.infoText}>
+                New {partyType === 'MERCHANT' ? 'merchant' : 'customer'} - Please enter details below
+              </Text>
+            )}
+          </View>
+
+          {(partyExists || showPartyFields) && (
+            <>
+              {partyType === 'MERCHANT' ? (
+                <>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Firm Name *</Text>
+                    <TextInput
+                      style={[styles.input, partyExists && styles.inputDisabled]}
+                      placeholder="Enter firm name"
+                      placeholderTextColor={Colors.textSecondary}
+                      value={firmName}
+                      onChangeText={setFirmName}
+                      editable={!partyExists}
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>GSTIN Number *</Text>
+                    <TextInput
+                      style={[styles.input, partyExists && styles.inputDisabled]}
+                      placeholder="Enter GSTIN"
+                      placeholderTextColor={Colors.textSecondary}
+                      value={gstin}
+                      onChangeText={setGstin}
+                      editable={!partyExists}
+                      autoCapitalize="characters"
+                    />
+                  </View>
+                </>
+              ) : (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Customer Name *</Text>
+                  <TextInput
+                    style={[styles.input, partyExists && styles.inputDisabled]}
+                    placeholder="Enter customer name"
+                    placeholderTextColor={Colors.textSecondary}
+                    value={customerName}
+                    onChangeText={setCustomerName}
+                    editable={!partyExists}
+                  />
+                </View>
+              )}
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Address *</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea, partyExists && styles.inputDisabled]}
+                  placeholder="Enter address"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={address}
+                  onChangeText={setAddress}
+                  multiline
+                  numberOfLines={2}
+                  textAlignVertical="top"
+                  editable={!partyExists}
+                />
+              </View>
+            </>
+          )}
+        </View>
+
+        {/* Grain Details Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🌾 Grain Details</Text>
+          
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Grain Type *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g., Wheat, Rice, Maize"
+              placeholderTextColor={Colors.textSecondary}
+              value={grainType}
+              onChangeText={setGrainType}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>No. of Bags *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter bags"
+                placeholderTextColor={Colors.textSecondary}
+                value={numberOfBags}
+                onChangeText={setNumberOfBags}
+                keyboardType="numeric"
+              />
+            </View>
+
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>Weight/Bag (Kg) *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter weight"
+                placeholderTextColor={Colors.textSecondary}
+                value={weightPerBag}
+                onChangeText={setWeightPerBag}
+                keyboardType="decimal-pad"
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Price Per Quintal (₹) *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter price"
+              placeholderTextColor={Colors.textSecondary}
+              value={pricePerQuintal}
+              onChangeText={setPricePerQuintal}
+              keyboardType="decimal-pad"
+            />
+          </View>
+
+          <View style={styles.calculatedCard}>
+            <View style={styles.calculatedRow}>
+              <Text style={styles.calculatedLabel}>Weight (Quintal):</Text>
+              <Text style={styles.calculatedValue}>{totalWeight.toFixed(2)} Qtl</Text>
+            </View>
+            <View style={styles.calculatedRow}>
+              <Text style={styles.calculatedLabel}>Gross Amount:</Text>
+              <Text style={styles.calculatedValue}>₹{grossAmount.toFixed(2)}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Fees & Charges Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>💰 Fees & Charges</Text>
+          
+          {billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT' ? (
+            // Bill of Supply - Merchant charges
+            <>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Arat (%)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter arat percentage"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={aratPercent}
+                  onChangeText={setAratPercent}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Tulak (₹)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter tulak"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={tulak}
+                  onChangeText={setTulak}
+                  keyboardType="decimal-pad"
+                />
+                <Text style={styles.hint}>Weight (Quintal): {calculateWeight().toFixed(2)} Qtl</Text>
+              </View>
+
+              <View style={styles.amountBreakdown}>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Gross Amount:</Text>
+                  <Text style={styles.breakdownValue}>₹ {grossAmount.toFixed(2)}</Text>
+                </View>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Arat:</Text>
+                  <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {calculateArat().toFixed(2)}</Text>
+                </View>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Tulak:</Text>
+                  <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {parseFloat(tulak || '0').toFixed(2)}</Text>
+                </View>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Mandi Shulk (1.5%):</Text>
+                  <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {calculateMandiShulk().toFixed(2)}</Text>
+                </View>
+                <View style={[styles.breakdownRow, styles.totalRow]}>
+                  <Text style={styles.totalLabel}>Net Receivable:</Text>
+                  <Text style={styles.totalValue}>₹ {netReceivable.toFixed(2)}</Text>
+                </View>
+              </View>
+            </>
+          ) : (
+            // Normal - Commission and Labour
+            <>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Commission (%)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter commission"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={commissionPercent}
+                  onChangeText={setCommissionPercent}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Labour Charge (₹)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter labour charge"
+                  placeholderTextColor={Colors.textSecondary}
+                  value={labourCharge}
+                  onChangeText={setLabourCharge}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+
+              {billType === 'NORMAL' && (
+                <View style={styles.amountBreakdown}>
+                  <View style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>Gross Amount:</Text>
+                    <Text style={styles.breakdownValue}>₹ {grossAmount.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>Commission:</Text>
+                    <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {commission.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>Labour Charge:</Text>
+                    <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {parseFloat(labourCharge || '0').toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.breakdownRow, styles.totalRow]}>
+                    <Text style={styles.totalLabel}>Net Receivable:</Text>
+                    <Text style={styles.totalValue}>₹ {netReceivable.toFixed(2)}</Text>
+                  </View>
+                </View>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* Submit Button */}
+        <View style={styles.buttonContainer}>
+          <CustomButton
+            title={loading ? 'Saving Transaction...' : 'Save Transaction'}
+            onPress={handleSubmit}
+            disabled={loading}
+          />
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => navigation.goBack()}
+            disabled={loading}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{height: 40}} />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  content: {
+    padding: Spacing.md,
+  },
+  header: {
+    marginBottom: Spacing.lg,
+  },
+  title: {
+    ...Typography.h2,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  subtitle: {
+    ...Typography.body2,
+    color: Colors.textSecondary,
+  },
+  section: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadow.small,
+  },
+  sectionTitle: {
+    ...Typography.h4,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.md,
+    fontWeight: '600',
+  },
+  inputGroup: {
+    marginBottom: Spacing.md,
+  },
+  label: {
+    ...Typography.body2,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+    fontWeight: '500',
+  },
+  input: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    ...Typography.body1,
+    color: Colors.textPrimary,
+  },
+  inputDisabled: {
+    backgroundColor: '#F5F5F5',
+    color: Colors.textSecondary,
+  },
+  textArea: {
+    minHeight: 60,
+    paddingTop: Spacing.sm,
+  },
+  hint: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+    fontStyle: 'italic',
+  },
+  phoneInputContainer: {
+    position: 'relative',
+  },
+  phoneLoader: {
+    position: 'absolute',
+    right: Spacing.sm,
+    top: Spacing.sm,
+  },
+  successText: {
+    ...Typography.caption,
+    color: Colors.success,
+    marginTop: Spacing.xs,
+  },
+  infoText: {
+    ...Typography.caption,
+    color: Colors.primary,
+    marginTop: Spacing.xs,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  typeButton: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    alignItems: 'center',
+  },
+  typeButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  typeButtonText: {
+    ...Typography.body1,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+  },
+  typeButtonTextActive: {
+    color: Colors.textLight,
+  },
+  typeButtonDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#F5F5F5',
+  },
+  typeButtonTextDisabled: {
+    color: '#BDBDBD',
+  },
+  calculatedCard: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  calculatedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.xs,
+  },
+  calculatedLabel: {
+    ...Typography.body1,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  calculatedValue: {
+    ...Typography.h4,
+    color: Colors.primary,
+    fontWeight: 'bold',
+  },
+  amountBreakdown: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.xs,
+  },
+  breakdownLabel: {
+    ...Typography.body2,
+    color: Colors.textSecondary,
+  },
+  breakdownValue: {
+    ...Typography.body1,
+    color: Colors.textPrimary,
+    fontWeight: '500',
+  },
+  additionValue: {
+    color: Colors.success,
+  },
+  totalRow: {
+    borderTopWidth: 2,
+    borderTopColor: Colors.border,
+    marginTop: Spacing.xs,
+    paddingTop: Spacing.sm,
+  },
+  totalLabel: {
+    ...Typography.body1,
+    color: Colors.textPrimary,
+    fontWeight: 'bold',
+  },
+  totalValue: {
+    ...Typography.h3,
+    color: Colors.primary,
+    fontWeight: 'bold',
+  },
+  buttonContainer: {
+    marginTop: Spacing.md,
+  },
+  cancelButton: {
+    marginTop: Spacing.sm,
+    padding: Spacing.md,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    ...Typography.button,
+    color: Colors.textSecondary,
+  },
+});
