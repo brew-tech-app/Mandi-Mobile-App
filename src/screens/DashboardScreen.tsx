@@ -334,7 +334,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
             <View style={[styles.stackCard, styles.greenCard]}>
               <Text style={styles.metricIcon}>📈</Text>
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalSellAmount || 0)}</Text>
-              <Text style={styles.metricLabel}>Total Sales</Text>
+              <Text style={styles.metricLabel}>Total Sales (Net Receivable)</Text>
             </View>
           </View>
 

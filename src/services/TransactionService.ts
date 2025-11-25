@@ -512,8 +512,9 @@ export class TransactionService implements ITransactionService {
       (sum, t) => sum + t.totalAmount - (t.commissionAmount || 0) - (t.labourCharges || 0),
       0,
     );
+    // Total Sell Amount = Net Receivable (Gross Amount + Commission + Labour Charges)
     const totalSellAmount = sellTransactions.reduce(
-      (sum, t) => sum + t.totalAmount,
+      (sum, t) => sum + t.totalAmount + (t.commissionAmount || 0) + (t.labourCharges || 0),
       0,
     );
     const totalLendAmount = lendTransactions.reduce(

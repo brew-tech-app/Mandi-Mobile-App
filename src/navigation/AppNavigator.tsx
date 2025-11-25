@@ -15,6 +15,7 @@ import {LendTransactionReceiptScreen} from '../screens/LendTransactionReceiptScr
 import {BuyTransactionReceiptScreen} from '../screens/BuyTransactionReceiptScreen';
 import {SellTransactionReceiptScreen} from '../screens/SellTransactionReceiptScreen';
 import {EditBuyTransactionScreen} from '../screens/EditBuyTransactionScreen';
+import {EditSellTransactionScreen} from '../screens/EditSellTransactionScreen';
 import {LoginScreen} from '../screens/LoginScreen';
 import {SignUpScreen} from '../screens/SignUpScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
@@ -96,6 +97,11 @@ const SellStackNavigator = () => {
         name="SellTransactionReceipt"
         component={SellTransactionReceiptScreen}
         options={{title: 'Transaction Receipt'}}
+      />
+      <SellStack.Screen
+        name="EditSellTransaction"
+        component={EditSellTransactionScreen}
+        options={{title: 'Edit Transaction'}}
       />
     </SellStack.Navigator>
   );

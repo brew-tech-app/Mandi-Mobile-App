@@ -10,7 +10,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
+import {Calendar} from 'react-native-calendars';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import {CustomButton} from '../components/CustomButton';
 import TransactionService from '../services/TransactionService';
@@ -30,6 +32,10 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
   const [farmerExists, setFarmerExists] = useState(false);
   const [checkingFarmer, setCheckingFarmer] = useState(false);
   const [showFarmerFields, setShowFarmerFields] = useState(false);
+  
+  // Date Selection
+  const [transactionDate, setTransactionDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   
   // Grain Details - Support multiple transactions
   interface GrainTransaction {
@@ -83,6 +89,20 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       setFarmerAddress('');
     }
   }, [farmerPhone]);
+
+  const handleDateChange = (dateString: string) => {
+    const selectedDate = new Date(dateString);
+    setTransactionDate(selectedDate);
+    setShowDatePicker(false);
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
 
   const checkFarmerExists = async () => {
     if (!farmerRepository) return;
@@ -294,7 +314,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
         paymentStatus: getPaymentStatus(),
         commissionAmount: commission,
         labourCharges: labourCharges,
-        date: new Date().toISOString(),
+        date: transactionDate.toISOString(),
         description,
       });
 
@@ -338,6 +358,67 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
           <Text style={styles.title}>Add Buy Transaction</Text>
           <Text style={styles.subtitle}>Purchase grain from farmer</Text>
         </View>
+
+        {/* Transaction Date Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📅 Transaction Date</Text>
+          <TouchableOpacity
+            style={styles.dateButton}
+            onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.dateButtonText}>📅 {formatDate(transactionDate)}</Text>
+          </TouchableOpacity>
+          <Text style={styles.hintText}>Tap to select date</Text>
+        </View>
+
+        {/* Calendar Modal */}
+        <Modal
+          visible={showDatePicker}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowDatePicker(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.calendarModal}>
+              <View style={styles.calendarHeader}>
+                <Text style={styles.calendarTitle}>Select Date</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.calendarClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Calendar
+                maxDate={new Date().toISOString().split('T')[0]}
+                onDayPress={(day: any) => handleDateChange(day.dateString)}
+                markedDates={{
+                  [transactionDate.toISOString().split('T')[0]]: {
+                    selected: true,
+                    selectedColor: Colors.primary,
+                  },
+                }}
+                theme={{
+                  backgroundColor: Colors.surface,
+                  calendarBackground: Colors.surface,
+                  textSectionTitleColor: Colors.textSecondary,
+                  selectedDayBackgroundColor: Colors.primary,
+                  selectedDayTextColor: Colors.textLight,
+                  todayTextColor: Colors.primary,
+                  dayTextColor: Colors.textPrimary,
+                  textDisabledColor: Colors.textSecondary,
+                  monthTextColor: Colors.textPrimary,
+                  textMonthFontWeight: 'bold',
+                  arrowColor: Colors.primary,
+                }}
+              />
+              
+              <View style={styles.calendarFooter}>
+                <CustomButton
+                  title="Cancel"
+                  onPress={() => setShowDatePicker(false)}
+                  variant="outline"
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Farmer Details Section */}
         <View style={styles.section}>
@@ -649,6 +730,57 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: Spacing.md,
     fontWeight: '600',
+  },
+  dateButton: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    alignItems: 'center',
+  },
+  dateButtonText: {
+    ...Typography.body1,
+    color: Colors.textPrimary,
+  },
+  hintText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    width: '90%',
+    overflow: 'hidden',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  calendarTitle: {
+    ...Typography.h4,
+    color: Colors.textPrimary,
+    fontWeight: 'bold',
+  },
+  calendarClose: {
+    ...Typography.h3,
+    color: Colors.textSecondary,
+  },
+  calendarFooter: {
+    padding: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
   inputGroup: {
     marginBottom: Spacing.md,

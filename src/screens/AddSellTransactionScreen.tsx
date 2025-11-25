@@ -10,7 +10,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
+import {Calendar} from 'react-native-calendars';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import {CustomButton} from '../components/CustomButton';
 import TransactionService from '../services/TransactionService';
@@ -28,9 +30,24 @@ type PartyType = 'MERCHANT' | 'CUSTOMER';
  */
 export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
   // Date & Bill Details
-  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transactionDate, setTransactionDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [billType, setBillType] = useState<BillType>('NORMAL');
   const [partyType, setPartyType] = useState<PartyType>('MERCHANT');
+
+  const handleDateChange = (dateString: string) => {
+    const selectedDate = new Date(dateString);
+    setTransactionDate(selectedDate);
+    setShowDatePicker(false);
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
   
   // Party Details
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -302,7 +319,7 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
         paymentStatus: PaymentStatus.PENDING,
         commissionAmount: commission,
         labourCharges: labour,
-        date: transactionDate,
+        date: transactionDate.toISOString(),
         description,
       });
 
@@ -347,18 +364,64 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
 
         {/* Date Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>📅 Date</Text>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Transaction Date *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={Colors.textSecondary}
-              value={transactionDate}
-              onChangeText={setTransactionDate}
-            />
-          </View>
+          <Text style={styles.sectionTitle}>📅 Transaction Date</Text>
+          <TouchableOpacity
+            style={styles.dateButton}
+            onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.dateButtonText}>📅 {formatDate(transactionDate)}</Text>
+          </TouchableOpacity>
+          <Text style={styles.hintText}>Tap to select date</Text>
         </View>
+
+        {/* Calendar Modal */}
+        <Modal
+          visible={showDatePicker}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowDatePicker(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.calendarModal}>
+              <View style={styles.calendarHeader}>
+                <Text style={styles.calendarTitle}>Select Date</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.calendarClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Calendar
+                maxDate={new Date().toISOString().split('T')[0]}
+                onDayPress={(day: any) => handleDateChange(day.dateString)}
+                markedDates={{
+                  [transactionDate.toISOString().split('T')[0]]: {
+                    selected: true,
+                    selectedColor: Colors.primary,
+                  },
+                }}
+                theme={{
+                  backgroundColor: Colors.surface,
+                  calendarBackground: Colors.surface,
+                  textSectionTitleColor: Colors.textSecondary,
+                  selectedDayBackgroundColor: Colors.primary,
+                  selectedDayTextColor: Colors.textLight,
+                  todayTextColor: Colors.primary,
+                  dayTextColor: Colors.textPrimary,
+                  textDisabledColor: Colors.textSecondary,
+                  monthTextColor: Colors.textPrimary,
+                  textMonthFontWeight: 'bold',
+                  arrowColor: Colors.primary,
+                }}
+              />
+              
+              <View style={styles.calendarFooter}>
+                <CustomButton
+                  title="Cancel"
+                  onPress={() => setShowDatePicker(false)}
+                  variant="outline"
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Bill Type Section */}
         <View style={styles.section}>
@@ -753,6 +816,57 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: Spacing.md,
     fontWeight: '600',
+  },
+  dateButton: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    alignItems: 'center',
+  },
+  dateButtonText: {
+    ...Typography.body1,
+    color: Colors.textPrimary,
+  },
+  hintText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: Spacing.xs,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    width: '90%',
+    overflow: 'hidden',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  calendarTitle: {
+    ...Typography.h4,
+    color: Colors.textPrimary,
+    fontWeight: 'bold',
+  },
+  calendarClose: {
+    ...Typography.h3,
+    color: Colors.textSecondary,
+  },
+  calendarFooter: {
+    padding: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
   inputGroup: {
     marginBottom: Spacing.md,

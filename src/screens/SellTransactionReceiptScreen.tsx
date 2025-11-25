@@ -35,6 +35,10 @@ export const SellTransactionReceiptScreen: React.FC<any> = ({route, navigation})
     loadTransaction();
   }, [transactionId]);
 
+  const handleEdit = () => {
+    navigation.navigate('EditSellTransaction', {transactionId});
+  };
+
   const loadTransaction = async () => {
     try {
       setLoading(true);
@@ -524,6 +528,9 @@ export const SellTransactionReceiptScreen: React.FC<any> = ({route, navigation})
           <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
             <Text style={styles.shareButtonText}>📤 Share Receipt</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.editButton} onPress={handleEdit}>
+            <Text style={styles.editButtonText}>✏️ Edit Transaction</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -954,8 +961,20 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
+    marginBottom: Spacing.sm,
   },
   shareButtonText: {
+    ...Typography.button,
+    color: Colors.textLight,
+    fontWeight: 'bold',
+  },
+  editButton: {
+    backgroundColor: Colors.secondary,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+  },
+  editButtonText: {
     ...Typography.button,
     color: Colors.textLight,
     fontWeight: 'bold',
