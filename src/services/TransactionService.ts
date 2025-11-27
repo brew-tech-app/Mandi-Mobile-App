@@ -19,6 +19,7 @@ import DatabaseService from '../database/DatabaseService';
 import CashBalanceService from './CashBalanceService';
 import AuthService from './AuthService';
 import DailyResetService from './DailyResetService';
+import ExpenseService from './ExpenseService';
 
 /**
  * Transaction Service Interface
@@ -346,30 +347,30 @@ export class TransactionService implements ITransactionService {
    * Dashboard Summary
    */
   public async getDashboardSummary(): Promise<DashboardSummary> {
+    // Get expense total using new ExpenseService
+    const allExpenses = await ExpenseService.getAllExpenses();
+    const totalExpenseAmount = allExpenses.reduce((sum, e) => sum + e.amount, 0);
+
     const [
       totalBuyAmount,
       totalSellAmount,
       totalLendAmount,
-      totalExpenseAmount,
       totalPendingBuyAmount,
       totalPendingSellAmount,
       totalPendingLendAmount,
       buyTransactions,
       sellTransactions,
       lendTransactions,
-      expenseTransactions,
     ] = await Promise.all([
       this.buyRepository.getTotalAmount(),
       this.sellRepository.getTotalAmount(),
       this.lendRepository.getTotalAmount(),
-      this.expenseRepository.getTotalAmount(),
       this.buyRepository.getTotalPendingAmount(),
       this.sellRepository.getTotalPendingAmount(),
       this.lendRepository.getTotalPendingAmount(),
       this.buyRepository.findAll(),
       this.sellRepository.findAll(),
       this.lendRepository.findAll(),
-      this.expenseRepository.findAll(),
     ]);
 
     // Calculate total commissions and labour charges
@@ -397,11 +398,11 @@ export class TransactionService implements ITransactionService {
     const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
 
     // Get recent transactions (last 10)
+    // Note: Expenses are excluded from recent transactions list as they use different structure
     const allTransactions: Transaction[] = [
       ...buyTransactions,
       ...sellTransactions,
       ...lendTransactions,
-      ...expenseTransactions,
     ];
 
     const recentTransactions = allTransactions
@@ -481,7 +482,7 @@ export class TransactionService implements ITransactionService {
       this.buyRepository.findAll(),
       this.sellRepository.findAll(),
       this.lendRepository.findAll(),
-      this.expenseRepository.findAll(),
+      ExpenseService.getAllExpenses(), // Use new ExpenseService
     ]);
 
     // Filter by date range
@@ -500,11 +501,11 @@ export class TransactionService implements ITransactionService {
       startDate,
       endDate,
     );
-    const expenseTransactions = this.filterTransactionsByDateRange(
-      allExpenseTransactions,
-      startDate,
-      endDate,
-    );
+    // Filter expenses by date range (different structure from transactions)
+    const expenseTransactions = allExpenseTransactions.filter(expense => {
+      const expenseDate = new Date(expense.date);
+      return expenseDate >= startDate && expenseDate <= endDate;
+    });
 
     // Calculate totals for the date range
     // Total Buy Amount = Net Payable (Gross Amount - Commission - Labour Charges)
@@ -564,11 +565,11 @@ export class TransactionService implements ITransactionService {
     const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
 
     // Get recent transactions from the date range (last 10)
+    // Note: Expenses are excluded from recent transactions list as they use different structure
     const allRangeTransactions: Transaction[] = [
       ...buyTransactions,
       ...sellTransactions,
       ...lendTransactions,
-      ...expenseTransactions,
     ];
 
     const recentTransactions = allRangeTransactions

@@ -181,18 +181,14 @@ export const TableSchemas = {
     )
   `,
   EXPENSE_TRANSACTIONS: `
-    CREATE TABLE IF NOT EXISTS expense_transactions (
+    CREATE TABLE IF NOT EXISTS expenses (
       id TEXT PRIMARY KEY,
-      expense_category TEXT NOT NULL,
-      expense_name TEXT NOT NULL,
-      amount REAL NOT NULL,
-      paid_to TEXT,
-      payment_mode TEXT NOT NULL,
-      receipt_number TEXT,
       date TEXT NOT NULL,
-      description TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      amount REAL NOT NULL,
+      notes TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
     )
   `,
 };

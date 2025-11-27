@@ -16,6 +16,8 @@ import {BuyTransactionReceiptScreen} from '../screens/BuyTransactionReceiptScree
 import {SellTransactionReceiptScreen} from '../screens/SellTransactionReceiptScreen';
 import {EditBuyTransactionScreen} from '../screens/EditBuyTransactionScreen';
 import {EditSellTransactionScreen} from '../screens/EditSellTransactionScreen';
+import {AddExpenseTransactionScreen} from '../screens/AddExpenseTransactionScreen';
+import {ExpenseTransactionsListScreen} from '../screens/ExpenseTransactionsListScreen';
 import {LoginScreen} from '../screens/LoginScreen';
 import {SignUpScreen} from '../screens/SignUpScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
@@ -28,6 +30,7 @@ const Stack = createStackNavigator();
 const BuyStack = createStackNavigator();
 const SellStack = createStackNavigator();
 const LendStack = createStackNavigator();
+const ExpenseStack = createStackNavigator();
 
 /**
  * Buy Stack Navigator
@@ -142,6 +145,35 @@ const LendStackNavigator = () => {
 };
 
 /**
+ * Expense Stack Navigator
+ */
+const ExpenseStackNavigator = () => {
+  return (
+    <ExpenseStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: Colors.primary,
+        },
+        headerTintColor: Colors.textLight,
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+      }}>
+      <ExpenseStack.Screen
+        name="ExpenseTransactionsList"
+        component={ExpenseTransactionsListScreen}
+        options={{title: 'Expenses'}}
+      />
+      <ExpenseStack.Screen
+        name="AddExpenseTransaction"
+        component={AddExpenseTransactionScreen}
+        options={{title: 'Add Expense'}}
+      />
+    </ExpenseStack.Navigator>
+  );
+};
+
+/**
  * Bottom Tab Navigator
  */
 const BottomTabNavigator = () => {
@@ -191,7 +223,7 @@ const BottomTabNavigator = () => {
       />
       <Tab.Screen
         name="ExpenseTransactions"
-        component={DashboardScreen}
+        component={ExpenseStackNavigator}
         options={{
           tabBarLabel: 'Expense',
           tabBarIcon: ({color}) => <View><Text style={{fontSize: 24}}>💸</Text></View>,
@@ -307,6 +339,21 @@ export const AppNavigator = () => {
               options={{
                 presentation: 'modal',
                 title: 'Add Lend Transaction',
+                headerStyle: {
+                  backgroundColor: Colors.primary,
+                },
+                headerTintColor: Colors.textLight,
+                headerTitleStyle: {
+                  fontWeight: 'bold',
+                },
+              }}
+            />
+            <Stack.Screen
+              name="AddExpenseTransactionModal"
+              component={AddExpenseTransactionScreen}
+              options={{
+                presentation: 'modal',
+                title: 'Add Expense',
                 headerStyle: {
                   backgroundColor: Colors.primary,
                 },

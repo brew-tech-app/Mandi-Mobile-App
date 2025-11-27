@@ -6,7 +6,9 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
+import {Calendar} from 'react-native-calendars';
 import {useFocusEffect} from '@react-navigation/native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import {LendTransaction, PaymentStatus} from '../models/Transaction';
@@ -18,13 +20,20 @@ import TransactionService from '../services/TransactionService';
  */
 export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
   const [transactions, setTransactions] = useState<LendTransaction[]>([]);
+  const [filteredTransactions, setFilteredTransactions] = useState<LendTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [showCalendar, setShowCalendar] = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
       loadTransactions();
     }, [])
   );
+
+  useEffect(() => {
+    filterTransactions();
+  }, [transactions, selectedDate]);
 
   const loadTransactions = async () => {
     try {
@@ -40,6 +49,20 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const filterTransactions = () => {
+    let filtered = transactions;
+
+    // Filter by date
+    if (selectedDate) {
+      filtered = filtered.filter(transaction => {
+        const transactionDate = new Date(transaction.date).toISOString().split('T')[0];
+        return transactionDate === selectedDate;
+      });
+    }
+
+    setFilteredTransactions(filtered);
   };
 
   const getStatusColor = (status: PaymentStatus) => {
@@ -150,16 +173,87 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
       {/* Header with Add Button */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Lend Transactions</Text>
-        <TouchableOpacity
-          style={styles.headerAddButton}
-          onPress={() => navigation.navigate('AddLendTransaction')}>
-          <Text style={styles.headerAddButtonText}>+ Add Transaction</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.dateButton, selectedDate ? styles.dateButtonActive : null]}
+            onPress={() => setShowCalendar(true)}>
+            <Text style={styles.dateButtonText}>
+              {selectedDate ? new Date(selectedDate).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'}) : '📅'}
+            </Text>
+          </TouchableOpacity>
+          {selectedDate && (
+            <TouchableOpacity
+              style={styles.clearDateButton}
+              onPress={() => setSelectedDate(null)}>
+              <Text style={styles.dateButtonText}>✕</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.headerAddButton}
+            onPress={() => navigation.navigate('AddLendTransaction')}>
+            <Text style={styles.headerAddButtonText}>+ Add</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Results Count */}
+      {selectedDate && (
+        <View style={styles.resultsContainer}>
+          <Text style={styles.resultsText}>
+            {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? 's' : ''} on {new Date(selectedDate).toLocaleDateString('en-IN')}
+          </Text>
+        </View>
+      )}
+
+      {/* Calendar Modal */}
+      <Modal
+        visible={showCalendar}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCalendar(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.calendarModal}>
+            <View style={styles.calendarHeader}>
+              <Text style={styles.calendarTitle}>Select Date</Text>
+              <TouchableOpacity onPress={() => setShowCalendar(false)}>
+                <Text style={styles.calendarClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              onDayPress={(day: {dateString: string}) => {
+                setSelectedDate(day.dateString);
+                setShowCalendar(false);
+              }}
+              markedDates={
+                selectedDate
+                  ? {
+                      [selectedDate]: {
+                        selected: true,
+                        selectedColor: Colors.primary,
+                      },
+                    }
+                  : {}
+              }
+              theme={{
+                backgroundColor: Colors.surface,
+                calendarBackground: Colors.surface,
+                textSectionTitleColor: Colors.textPrimary,
+                selectedDayBackgroundColor: Colors.primary,
+                selectedDayTextColor: Colors.surface,
+                todayTextColor: Colors.primary,
+                dayTextColor: Colors.textPrimary,
+                textDisabledColor: Colors.textSecondary,
+                monthTextColor: Colors.textPrimary,
+                arrowColor: Colors.primary,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Transactions List */}
       <FlatList
-        data={transactions}
+        data={filteredTransactions}
         renderItem={renderTransaction}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
@@ -198,6 +292,42 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: 'bold',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  dateButton: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    minWidth: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  dateButtonText: {
+    ...Typography.body2,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+  },
+  clearDateButton: {
+    backgroundColor: Colors.error,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerAddButton: {
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.md,
@@ -208,6 +338,44 @@ const styles = StyleSheet.create({
     ...Typography.body2,
     color: Colors.textLight,
     fontWeight: '600',
+  },
+  resultsContainer: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.surface,
+  },
+  resultsText: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    width: '90%',
+    maxWidth: 400,
+    ...Shadow.large,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  calendarTitle: {
+    ...Typography.h3,
+    color: Colors.textPrimary,
+  },
+  calendarClose: {
+    ...Typography.h3,
+    color: Colors.textSecondary,
+    paddingHorizontal: Spacing.sm,
   },
   listContainer: {
     padding: Spacing.md,

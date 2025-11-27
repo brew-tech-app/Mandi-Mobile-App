@@ -8,7 +8,9 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Modal,
 } from 'react-native';
+import {Calendar} from 'react-native-calendars';
 import {useFocusEffect} from '@react-navigation/native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import {SellTransaction, PaymentStatus} from '../models/Transaction';
@@ -27,6 +29,8 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<TabType>('UNSETTLED');
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [showCalendar, setShowCalendar] = useState(false);
 
   // Get search phone from navigation params (if coming from Dashboard search)
   const searchPhone = route.params?.searchPhone;
@@ -44,7 +48,7 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
     try {
       const data = await TransactionService.getAllSellTransactions();
       setTransactions(data);
-      filterTransactions(data, searchQuery, selectedTab);
+      filterTransactions(data, searchQuery, selectedTab, selectedDate);
     } catch (error) {
       console.error('Error loading sell transactions:', error);
     } finally {
@@ -59,10 +63,10 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
   };
 
   useEffect(() => {
-    filterTransactions(transactions, searchQuery, selectedTab);
-  }, [searchQuery, selectedTab, transactions]);
+    filterTransactions(transactions, searchQuery, selectedTab, selectedDate);
+  }, [searchQuery, selectedTab, transactions, selectedDate]);
 
-  const filterTransactions = (data: SellTransaction[], query: string, tab: TabType) => {
+  const filterTransactions = (data: SellTransaction[], query: string, tab: TabType, date: string | null) => {
     let filtered = data;
 
     // Filter by tab
@@ -70,6 +74,14 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
       filtered = filtered.filter(t => t.paymentStatus !== PaymentStatus.COMPLETED);
     } else {
       filtered = filtered.filter(t => t.paymentStatus === PaymentStatus.COMPLETED);
+    }
+
+    // Filter by date
+    if (date) {
+      filtered = filtered.filter(transaction => {
+        const transactionDate = new Date(transaction.date).toISOString().split('T')[0];
+        return transactionDate === date;
+      });
     }
 
     // Filter by search query
@@ -225,8 +237,8 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
 
   return (
     <View style={styles.container}>
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
+      {/* Search Bar and Date Filter */}
+      <View style={styles.filterContainer}>
         <TextInput
           style={styles.searchInput}
           placeholder="Search by buyer, phone, or grain..."
@@ -234,7 +246,67 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        <TouchableOpacity
+          style={[styles.dateButton, selectedDate ? styles.dateButtonActive : null]}
+          onPress={() => setShowCalendar(true)}>
+          <Text style={styles.dateButtonText}>
+            {selectedDate ? new Date(selectedDate).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'}) : '📅'}
+          </Text>
+        </TouchableOpacity>
+        {selectedDate && (
+          <TouchableOpacity
+            style={styles.clearDateButton}
+            onPress={() => setSelectedDate(null)}>
+            <Text style={styles.dateButtonText}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Calendar Modal */}
+      <Modal
+        visible={showCalendar}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCalendar(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.calendarModal}>
+            <View style={styles.calendarHeader}>
+              <Text style={styles.calendarTitle}>Select Date</Text>
+              <TouchableOpacity onPress={() => setShowCalendar(false)}>
+                <Text style={styles.calendarClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Calendar
+              onDayPress={(day: {dateString: string}) => {
+                setSelectedDate(day.dateString);
+                setShowCalendar(false);
+              }}
+              markedDates={
+                selectedDate
+                  ? {
+                      [selectedDate]: {
+                        selected: true,
+                        selectedColor: Colors.primary,
+                      },
+                    }
+                  : {}
+              }
+              theme={{
+                backgroundColor: Colors.surface,
+                calendarBackground: Colors.surface,
+                textSectionTitleColor: Colors.textPrimary,
+                selectedDayBackgroundColor: Colors.primary,
+                selectedDayTextColor: Colors.surface,
+                todayTextColor: Colors.primary,
+                dayTextColor: Colors.textPrimary,
+                textDisabledColor: Colors.textSecondary,
+                monthTextColor: Colors.textPrimary,
+                arrowColor: Colors.primary,
+              }}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Tab Navigation */}
       <View style={styles.tabContainer}>
@@ -301,7 +373,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     ...Shadow.small,
   },
+  filterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    ...Shadow.small,
+    gap: Spacing.sm,
+  },
   searchInput: {
+    flex: 1,
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -309,6 +390,66 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     ...Typography.body1,
     color: Colors.textPrimary,
+  },
+  dateButton: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    minWidth: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  dateButtonText: {
+    ...Typography.body2,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+  },
+  clearDateButton: {
+    backgroundColor: Colors.error,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    width: '90%',
+    maxWidth: 400,
+    ...Shadow.large,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  calendarTitle: {
+    ...Typography.h3,
+    color: Colors.textPrimary,
+  },
+  calendarClose: {
+    ...Typography.h3,
+    color: Colors.textSecondary,
+    paddingHorizontal: Spacing.sm,
   },
   tabContainer: {
     flexDirection: 'row',

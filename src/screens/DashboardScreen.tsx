@@ -187,7 +187,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
     {
       label: 'Expense',
       color: Colors.expense,
-      onPress: () => navigation.navigate('AddExpenseTransaction'),
+      onPress: () => navigation.navigate('AddExpenseTransactionModal'),
     },
   ];
 
