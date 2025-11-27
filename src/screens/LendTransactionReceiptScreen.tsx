@@ -81,19 +81,21 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
   };
 
   /**
-   * Calculate total interest and amount with interest
+   * Calculate total interest and amount with interest up to a specific date
    */
-  const calculateTotalInterest = (): {
+  const calculateTotalInterestUpToDate = (upToDate: Date): {
     totalInterest: number;
     totalAmountWithInterest: number;
+    currentPrincipal: number;
     interestBreakdown: Array<{period: string; principal: number; days: number; interest: number}>;
   } => {
-    if (!transaction) return {totalInterest: 0, totalAmountWithInterest: 0, interestBreakdown: []};
+    if (!transaction) return {totalInterest: 0, totalAmountWithInterest: 0, currentPrincipal: 0, interestBreakdown: []};
 
     const rate = getInterestRate();
     if (rate === 0) return {
       totalInterest: 0,
       totalAmountWithInterest: transaction.balanceAmount,
+      currentPrincipal: transaction.balanceAmount,
       interestBreakdown: []
     };
 
@@ -102,48 +104,61 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
       (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime()
     );
 
-    let totalInterest = 0;
-    let currentPrincipal = transaction.amount || 0;
+    // Start with the current balance from the transaction (this is the remaining principal after all payments)
+    let currentPrincipal = transaction.balanceAmount || 0;
+    
+    // If there are no payments yet, use the original loan amount
+    if (sortedPayments.length === 0) {
+      currentPrincipal = transaction.amount || 0;
+    }
+    
+    // Determine the start date for interest calculation
+    // If there are payments, start from the last payment date
+    // Otherwise, start from the loan date
     let currentDate = lendDate;
-    const interestBreakdown: Array<{period: string; principal: number; days: number; interest: number}> = [];
-
-    // Calculate interest for each period between payments
-    sortedPayments.forEach((payment, index) => {
-      const paymentDate = new Date(payment.paymentDate);
-      const interest = calculateInterest(currentPrincipal, rate, currentDate, paymentDate);
-      const days = Math.ceil((paymentDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
-
-      interestBreakdown.push({
-        period: `${formatDate(currentDate)} to ${formatDate(paymentDate)}`,
-        principal: currentPrincipal,
-        days,
-        interest,
-      });
-
-      totalInterest += interest;
-      currentPrincipal -= payment.amount; // Reduce principal after payment
-      currentDate = paymentDate;
-    });
-
-    // Calculate interest from last payment date to today for remaining balance
-    if (currentPrincipal > 0) {
-      const today = new Date();
-      const interest = calculateInterest(currentPrincipal, rate, currentDate, today);
-      const days = Math.ceil((today.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
-
-      interestBreakdown.push({
-        period: `${formatDate(currentDate)} to Today`,
-        principal: currentPrincipal,
-        days,
-        interest,
-      });
-
-      totalInterest += interest;
+    if (sortedPayments.length > 0) {
+      const lastPayment = sortedPayments[sortedPayments.length - 1];
+      currentDate = new Date(lastPayment.paymentDate);
+      // The current principal is the remaining balance after all payments
+      currentPrincipal = transaction.balanceAmount || 0;
     }
 
-    const totalAmountWithInterest = transaction.balanceAmount + totalInterest;
+    const interestBreakdown: Array<{period: string; principal: number; days: number; interest: number}> = [];
 
-    return {totalInterest, totalAmountWithInterest, interestBreakdown};
+    // Calculate interest from the last payment date (or loan date) to upToDate
+    const interest = calculateInterest(currentPrincipal, rate, currentDate, upToDate);
+    const days = Math.ceil((upToDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (days > 0) {
+      interestBreakdown.push({
+        period: `${formatDate(currentDate)} to ${formatDate(upToDate)}`,
+        principal: currentPrincipal,
+        days,
+        interest,
+      });
+    }
+
+    const totalInterest = interest;
+
+    const totalAmountWithInterest = currentPrincipal + totalInterest;
+
+    return {totalInterest, totalAmountWithInterest, currentPrincipal, interestBreakdown};
+  };
+
+  /**
+   * Calculate total interest and amount with interest (up to today)
+   */
+  const calculateTotalInterest = (): {
+    totalInterest: number;
+    totalAmountWithInterest: number;
+    interestBreakdown: Array<{period: string; principal: number; days: number; interest: number}>;
+  } => {
+    const result = calculateTotalInterestUpToDate(new Date());
+    return {
+      totalInterest: result.totalInterest,
+      totalAmountWithInterest: result.totalAmountWithInterest,
+      interestBreakdown: result.interestBreakdown
+    };
   };
 
   const formatDate = (date: Date | string): string => {
@@ -158,7 +173,9 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
   const handleAddPayment = async () => {
     if (!transaction) return;
 
-    const {totalAmountWithInterest, totalInterest} = calculateTotalInterest();
+    // Calculate interest up to the selected payment date
+    const {totalAmountWithInterest, totalInterest, currentPrincipal} = 
+      calculateTotalInterestUpToDate(paymentDate);
 
     // For final settlement, use total amount with interest
     const amount = paymentType === 'FINAL' 
@@ -175,7 +192,47 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
         Alert.alert('Invalid Amount', 'Payment amount cannot exceed total amount with interest');
         return;
       }
+
+      // Calculate interest payment and principal payment
+      // Interest is only what has accrued since the last payment
+      const interestPayment = Math.min(amount, totalInterest);
+      const principalPayment = amount - interestPayment;
+
+      // Show breakdown to user before confirming
+      const remainingInterest = Math.max(0, totalInterest - interestPayment);
+      const interestPaidInFull = interestPayment >= totalInterest;
+      
+      Alert.alert(
+        'Payment Breakdown',
+        `Total Payment: ₹${amount.toFixed(2)}\n` +
+        `Interest Payment: ₹${interestPayment.toFixed(2)}\n` +
+        `Principal Payment: ₹${principalPayment.toFixed(2)}\n\n` +
+        `Current Principal: ₹${currentPrincipal.toFixed(2)}\n` +
+        `New Principal: ₹${(currentPrincipal - principalPayment).toFixed(2)}\n\n` +
+        `Accrued Interest (since last payment till ${formatDate(paymentDate)}): ₹${totalInterest.toFixed(2)}\n` +
+        `Remaining Interest: ₹${remainingInterest.toFixed(2)}\n\n` +
+        (interestPaidInFull && principalPayment < currentPrincipal
+          ? `✓ Full interest paid! Future interest will be calculated from ${formatDate(paymentDate)} on remaining principal.`
+          : ''),
+        [
+          {text: 'Cancel', style: 'cancel'},
+          {text: 'Confirm', onPress: () => processPayment(amount, totalInterest, currentPrincipal, principalPayment)}
+        ]
+      );
+      return;
     }
+
+    // For final settlement, proceed directly
+    processPayment(amount, totalInterest, currentPrincipal, currentPrincipal);
+  };
+
+  const processPayment = async (
+    amount: number, 
+    totalInterest: number, 
+    currentPrincipal: number,
+    principalPayment: number
+  ) => {
+    if (!transaction) return;
 
     try {
       // Create payment record using PaymentRepository directly
@@ -183,17 +240,21 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
       const {PaymentRepository} = await import('../repositories/PaymentRepository');
       const paymentRepo = new PaymentRepository(db);
       
+      const interestPayment = Math.min(amount, totalInterest);
+      
       await paymentRepo.create({
         transactionId: transaction.id,
         transactionType: 'LEND',
         amount: amount,
         paymentDate: paymentDate.toISOString(),
         paymentMode: paymentMode,
-        notes: paymentNotes || `Payment of ₹${amount.toFixed(2)}. Interest: ₹${totalInterest.toFixed(2)}`,
+        notes: paymentNotes || 
+          `Payment: ₹${amount.toFixed(2)} (Interest: ₹${interestPayment.toFixed(2)}, Principal: ₹${principalPayment.toFixed(2)})`,
       });
 
       // Update transaction amounts
-      const newReturnedAmount = transaction.returnedAmount + amount;
+      // For interest-first allocation: only principal payment reduces balance
+      const newReturnedAmount = transaction.returnedAmount + principalPayment;
       const newBalanceAmount = (transaction.amount || 0) - newReturnedAmount;
       const newPaymentStatus = newBalanceAmount <= 0 
         ? PaymentStatus.COMPLETED 
@@ -405,33 +466,58 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
               </TouchableOpacity>
             </View>
 
-            {paymentType === 'PARTIAL' && (
-              <View style={styles.modalSection}>
-                <Text style={styles.modalLabel}>Payment Amount</Text>
-                <TextInput
-                  style={styles.modalInput}
-                  placeholder="Enter amount"
-                  value={paymentAmount}
-                  onChangeText={setPaymentAmount}
-                  keyboardType="decimal-pad"
-                />
-                <Text style={styles.modalHint}>
-                  Max: ₹{totalAmountWithInterest.toFixed(2)} (with interest)
-                </Text>
-              </View>
-            )}
+            {(() => {
+              // Calculate interest up to the selected payment date
+              const {totalInterest: interestUpToDate, totalAmountWithInterest: amountUpToDate, currentPrincipal} = 
+                calculateTotalInterestUpToDate(paymentDate);
+              
+              return (
+                <>
+                  {/* Show Interest Breakdown */}
+                  <View style={styles.modalSection}>
+                    <View style={styles.interestInfoBox}>
+                      <Text style={styles.interestInfoLabel}>Interest (till {formatDate(paymentDate)})</Text>
+                      <Text style={styles.interestInfoValue}>₹{interestUpToDate.toFixed(2)}</Text>
+                    </View>
+                    <View style={styles.interestInfoBox}>
+                      <Text style={styles.interestInfoLabel}>Current Principal</Text>
+                      <Text style={styles.interestInfoValue}>₹{currentPrincipal.toFixed(2)}</Text>
+                    </View>
+                  </View>
 
-            {paymentType === 'FINAL' && (
-              <View style={styles.modalSection}>
-                <Text style={styles.modalLabel}>Settlement Amount</Text>
-                <Text style={styles.settlementAmount}>
-                  ₹{totalAmountWithInterest.toFixed(2)}
-                </Text>
-                <Text style={styles.modalHint}>
-                  Principal: ₹{transaction.balanceAmount.toFixed(2)} + Interest: ₹{totalInterest.toFixed(2)}
-                </Text>
-              </View>
-            )}
+                  {paymentType === 'PARTIAL' && (
+                    <View style={styles.modalSection}>
+                      <Text style={styles.modalLabel}>Payment Amount</Text>
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="Enter amount"
+                        value={paymentAmount}
+                        onChangeText={setPaymentAmount}
+                        keyboardType="decimal-pad"
+                      />
+                      <Text style={styles.modalHint}>
+                        Max: ₹{amountUpToDate.toFixed(2)} (Principal + Interest)
+                      </Text>
+                      <Text style={styles.modalHint}>
+                        Note: Interest will be deducted first, remaining will reduce principal
+                      </Text>
+                    </View>
+                  )}
+
+                  {paymentType === 'FINAL' && (
+                    <View style={styles.modalSection}>
+                      <Text style={styles.modalLabel}>Settlement Amount</Text>
+                      <Text style={styles.settlementAmount}>
+                        ₹{amountUpToDate.toFixed(2)}
+                      </Text>
+                      <Text style={styles.modalHint}>
+                        Principal: ₹{currentPrincipal.toFixed(2)} + Interest: ₹{interestUpToDate.toFixed(2)}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              );
+            })()}
 
             {/* Payment Mode */}
             <View style={styles.modalSection}>
@@ -500,6 +586,16 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
               </TouchableOpacity>
             </View>
             <Calendar
+              minDate={(() => {
+                // Minimum date is either loan date or last payment date
+                if (payments.length > 0) {
+                  const lastPayment = [...payments].sort(
+                    (a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+                  )[0];
+                  return new Date(lastPayment.paymentDate).toISOString().split('T')[0];
+                }
+                return new Date(transaction.date).toISOString().split('T')[0];
+              })()}
               maxDate={new Date().toISOString().split('T')[0]}
               onDayPress={(day: any) => {
                 setPaymentDate(new Date(day.dateString));
@@ -814,5 +910,24 @@ const styles = StyleSheet.create({
   calendarClose: {
     ...Typography.h3,
     color: Colors.textSecondary,
+  },
+  interestInfoBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  interestInfoLabel: {
+    ...Typography.body2,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  interestInfoValue: {
+    ...Typography.body1,
+    color: Colors.primary,
+    fontWeight: 'bold',
   },
 });
