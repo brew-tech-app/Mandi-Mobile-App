@@ -1,5 +1,7 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import {View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, TextInput, StatusBar, Modal, Alert} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {Calendar} from 'react-native-calendars';
 import {SummaryCard} from '../components/SummaryCard';
 import {TransactionCard} from '../components/TransactionCard';
 import {FloatingActionButton} from '../components/FloatingActionButton';
@@ -26,6 +28,9 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
   const [isBalanceModalVisible, setIsBalanceModalVisible] = useState(false);
   const [balanceInput, setBalanceInput] = useState('');
   const [dateRange, setDateRange] = useState({start: new Date(), end: new Date()});
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [customViewMode, setCustomViewMode] = useState<'range' | 'single'>('range');
+  const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [totalStock, setTotalStock] = useState<number>(0);
   const [stockByGrainType, setStockByGrainType] = useState<StockByGrainType[]>([]);
   const [isStockModalVisible, setIsStockModalVisible] = useState(false);
@@ -77,10 +82,21 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           data = await TransactionService.getQuarterlyOperationalSummary();
           break;
         case 'custom':
-          data = await TransactionService.getDashboardSummaryByDateRange(
-            dateRange.start,
-            dateRange.end,
-          );
+          if (customViewMode === 'single' && selectedDate) {
+            // For single date, set both start and end to the same date
+            const endOfDay = new Date(selectedDate);
+            endOfDay.setHours(23, 59, 59, 999);
+            data = await TransactionService.getDashboardSummaryByDateRange(
+              selectedDate,
+              endOfDay,
+            );
+          } else {
+            // For range mode
+            data = await TransactionService.getDashboardSummaryByDateRange(
+              dateRange.start,
+              dateRange.end,
+            );
+          }
           break;
         default:
           data = await TransactionService.getDailyOperationalSummary();
@@ -136,10 +152,8 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
         end = new Date(today.getFullYear(), (quarter + 1) * 3, 0, 23, 59, 59, 999);
         break;
       case 'custom':
-        // Use existing dateRange state
-        start = dateRange.start;
-        end = dateRange.end;
-        break;
+        // For custom, don't update dateRange to avoid infinite loop
+        return {start: dateRange.start, end: dateRange.end};
     }
 
     setDateRange({start, end});
@@ -151,9 +165,11 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
   }, []);
 
   useEffect(() => {
-    calculateDateRange();
+    if (selectedTab !== 'custom') {
+      calculateDateRange();
+    }
     loadSummaryByTab();
-  }, [selectedTab]);
+  }, [selectedTab, selectedDate, customViewMode]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -315,6 +331,53 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* Custom Date Picker Section */}
+          {selectedTab === 'custom' && (
+            <View style={styles.customDateSection}>
+              {/* View Mode Toggle */}
+              <View style={styles.viewModeToggle}>
+                <TouchableOpacity
+                  style={[
+                    styles.viewModeButton,
+                    customViewMode === 'range' && styles.viewModeButtonActive
+                  ]}
+                  onPress={() => setCustomViewMode('range')}>
+                  <Icon name="calendar-range" size={20} color={customViewMode === 'range' ? Colors.textLight : Colors.textSecondary} />
+                  <Text style={[
+                    styles.viewModeText,
+                    customViewMode === 'range' && styles.viewModeTextActive
+                  ]}>Date Range</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.viewModeButton,
+                    customViewMode === 'single' && styles.viewModeButtonActive
+                  ]}
+                  onPress={() => setCustomViewMode('single')}>
+                  <Icon name="calendar" size={20} color={customViewMode === 'single' ? Colors.textLight : Colors.textSecondary} />
+                  <Text style={[
+                    styles.viewModeText,
+                    customViewMode === 'single' && styles.viewModeTextActive
+                  ]}>Single Date</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Date Selection Button */}
+              <TouchableOpacity
+                style={styles.datePickerButton}
+                onPress={() => setIsDatePickerVisible(true)}>
+                <Icon name="calendar-month" size={24} color={Colors.primary} />
+                <Text style={styles.datePickerButtonText}>
+                  {customViewMode === 'single' && selectedDate
+                    ? `Selected: ${formatDate(selectedDate.toISOString())}`
+                    : customViewMode === 'range'
+                    ? `${formatDate(dateRange.start.toISOString())} - ${formatDate(dateRange.end.toISOString())}`
+                    : 'Select Date'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Daily Operational Summary */}
@@ -325,14 +388,14 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           <View style={styles.cardRow}>
             {/* Total Purchases */}
             <View style={[styles.stackCard, styles.yellowCard]}>
-              <Text style={styles.metricIcon}>💰</Text>
+              <Icon name="wallet" size={32} color={Colors.warning} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalBuyAmount || 0)}</Text>
               <Text style={styles.metricLabel}>Total Purchases (Net Payable)</Text>
             </View>
 
             {/* Total Sales */}
             <View style={[styles.stackCard, styles.greenCard]}>
-              <Text style={styles.metricIcon}>📈</Text>
+              <Icon name="trending-up" size={32} color={Colors.success} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalSellAmount || 0)}</Text>
               <Text style={styles.metricLabel}>Total Sales (Net Receivable)</Text>
             </View>
@@ -345,7 +408,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               style={[styles.stackCard, {backgroundColor: isProfitable ? '#DCFCE7' : '#FEE2E2'}]}
               onPress={() => setIsProfitModalVisible(true)}
               activeOpacity={0.8}>
-              <Text style={styles.metricIcon}>{isProfitable ? '📊' : '📉'}</Text>
+              <Icon name={isProfitable ? "chart-line" : "chart-line-variant"} size={32} color={isProfitable ? Colors.success : Colors.error} style={styles.metricIcon} />
               <Text style={[styles.metricValue, {color: isProfitable ? Colors.success : Colors.error}]}>
                 {formatCurrency(profit)}
               </Text>
@@ -353,9 +416,20 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               <Text style={styles.tapHint}>Tap to view breakdown</Text>
             </TouchableOpacity>
 
+            {/* Total Expenses */}
+            <TouchableOpacity 
+              style={[styles.stackCard, styles.expenseCard]}
+              onPress={() => navigation.navigate('Expense')}
+              activeOpacity={0.8}>
+              <Icon name="receipt" size={32} color={Colors.expense} style={styles.metricIcon} />
+              <Text style={styles.metricValue}>{formatCurrency(summary?.totalExpenseAmount || 0)}</Text>
+              <Text style={styles.metricLabel}>Total Expenses</Text>
+              <Text style={styles.tapHint}>Tap to view details</Text>
+            </TouchableOpacity>
+
             {/* Labour Charges */}
             <View style={[styles.stackCard, styles.purpleCard]}>
-              <Text style={styles.metricIcon}>🕐</Text>
+              <Icon name="account-clock" size={32} color={Colors.purple} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalBuyLabourCharges || 0)}</Text>
               <Text style={styles.metricLabel}>Total Labour Charges</Text>
             </View>
@@ -373,7 +447,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               style={[styles.stackCard, styles.blueCard]}
               onPress={() => setIsStockModalVisible(true)}
               activeOpacity={0.8}>
-              <Text style={styles.metricIcon}>📋</Text>
+              <Icon name="package-variant" size={32} color={Colors.blue} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{totalStock.toFixed(2)} Qtl</Text>
               <Text style={styles.metricLabel}>Stock (Running Total)</Text>
               <Text style={styles.tapHint}>Tap to view by grain type</Text>
@@ -381,7 +455,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
 
             {/* Outstanding Loans - Running Total */}
             <View style={[styles.stackCard, styles.redCard]}>
-              <Text style={styles.metricIcon}>📉</Text>
+              <Icon name="hand-coin" size={32} color={Colors.error} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{formatCurrency(runningLoans)}</Text>
               <Text style={styles.metricLabel}>Outstanding Loans (Running)</Text>
             </View>
@@ -396,7 +470,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           <View style={styles.cardRow}>
             {/* Total Payables - Running Total */}
             <View style={[styles.stackCard, styles.redLightCard]}>
-              <Text style={styles.metricIcon}>📅</Text>
+              <Icon name="calendar-clock" size={32} color={Colors.error} style={styles.metricIcon} />
               <Text style={[styles.metricValue, {color: Colors.error}]}>
                 {formatCurrency(runningPayables)}
               </Text>
@@ -405,7 +479,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
 
             {/* Total Receivables - Running Total */}
             <View style={[styles.stackCard, styles.greenLightCard]}>
-              <Text style={styles.metricIcon}>💵</Text>
+              <Icon name="cash-multiple" size={32} color={Colors.success} style={styles.metricIcon} />
               <Text style={[styles.metricValue, {color: Colors.success}]}>
                 {formatCurrency(runningReceivables)}
               </Text>
@@ -639,6 +713,124 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           </View>
         </View>
       </Modal>
+
+      {/* Date Picker Modal */}
+      <Modal
+        visible={isDatePickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsDatePickerVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.datePickerModalContent}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.modalTitle}>
+                {customViewMode === 'single' ? 'Select Date' : 'Select Date Range'}
+              </Text>
+              <TouchableOpacity onPress={() => setIsDatePickerVisible(false)}>
+                <Icon name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {customViewMode === 'single' ? (
+              // Single Date Picker
+              <Calendar
+                onDayPress={(day: {dateString: string}) => {
+                  setSelectedDate(new Date(day.dateString));
+                  setIsDatePickerVisible(false);
+                  setTimeout(() => loadSummaryByTab(), 100);
+                }}
+                markedDates={
+                  selectedDate
+                    ? {
+                        [selectedDate.toISOString().split('T')[0]]: {
+                          selected: true,
+                          selectedColor: Colors.primary,
+                        },
+                      }
+                    : {}
+                }
+                theme={{
+                  backgroundColor: Colors.surface,
+                  calendarBackground: Colors.surface,
+                  textSectionTitleColor: Colors.textPrimary,
+                  selectedDayBackgroundColor: Colors.primary,
+                  selectedDayTextColor: Colors.surface,
+                  todayTextColor: Colors.primary,
+                  dayTextColor: Colors.textPrimary,
+                  textDisabledColor: Colors.textSecondary,
+                  monthTextColor: Colors.textPrimary,
+                  arrowColor: Colors.primary,
+                }}
+              />
+            ) : (
+              // Date Range Picker
+              <>
+                <Text style={styles.dateRangeLabel}>Start Date:</Text>
+                <Calendar
+                  onDayPress={(day: {dateString: string}) => {
+                    const newStart = new Date(day.dateString);
+                    setDateRange({...dateRange, start: newStart});
+                  }}
+                  markedDates={{
+                    [dateRange.start.toISOString().split('T')[0]]: {
+                      selected: true,
+                      selectedColor: Colors.primary,
+                    },
+                  }}
+                  theme={{
+                    backgroundColor: Colors.surface,
+                    calendarBackground: Colors.surface,
+                    textSectionTitleColor: Colors.textPrimary,
+                    selectedDayBackgroundColor: Colors.primary,
+                    selectedDayTextColor: Colors.surface,
+                    todayTextColor: Colors.primary,
+                    dayTextColor: Colors.textPrimary,
+                    textDisabledColor: Colors.textSecondary,
+                    monthTextColor: Colors.textPrimary,
+                    arrowColor: Colors.primary,
+                  }}
+                />
+                
+                <Text style={styles.dateRangeLabel}>End Date:</Text>
+                <Calendar
+                  onDayPress={(day: {dateString: string}) => {
+                    const newEnd = new Date(day.dateString);
+                    setDateRange({...dateRange, end: newEnd});
+                  }}
+                  minDate={dateRange.start.toISOString().split('T')[0]}
+                  markedDates={{
+                    [dateRange.end.toISOString().split('T')[0]]: {
+                      selected: true,
+                      selectedColor: Colors.success,
+                    },
+                  }}
+                  theme={{
+                    backgroundColor: Colors.surface,
+                    calendarBackground: Colors.surface,
+                    textSectionTitleColor: Colors.textPrimary,
+                    selectedDayBackgroundColor: Colors.success,
+                    selectedDayTextColor: Colors.surface,
+                    todayTextColor: Colors.primary,
+                    dayTextColor: Colors.textPrimary,
+                    textDisabledColor: Colors.textSecondary,
+                    monthTextColor: Colors.textPrimary,
+                    arrowColor: Colors.primary,
+                  }}
+                />
+
+                <TouchableOpacity
+                  style={styles.applyDateRangeButton}
+                  onPress={() => {
+                    setIsDatePickerVisible(false);
+                    setTimeout(() => loadSummaryByTab(), 100);
+                  }}>
+                  <Text style={styles.applyDateRangeButtonText}>Apply Date Range</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -804,6 +996,62 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
   },
   
+  // Custom Date Section
+  customDateSection: {
+    marginTop: Spacing.md,
+    backgroundColor: Colors.surface,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    ...Shadow.small,
+  },
+  viewModeToggle: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  viewModeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  viewModeButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  viewModeText: {
+    ...Typography.body2,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  viewModeTextActive: {
+    color: Colors.textLight,
+  },
+  datePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.background,
+  },
+  datePickerButtonText: {
+    ...Typography.body2,
+    flex: 1,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+  },
+  
   // Two Column Layout
   cardRow: {
     flexDirection: 'row',
@@ -839,6 +1087,9 @@ const styles = StyleSheet.create({
   purpleCard: {
     backgroundColor: '#F3E8FF',
   },
+  expenseCard: {
+    backgroundColor: '#FAE8FF',
+  },
   blueCard: {
     backgroundColor: '#DBEAFE',
   },
@@ -852,7 +1103,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
   },
   metricIcon: {
-    fontSize: 24,
     marginBottom: Spacing.xs,
   },
   metricValue: {
@@ -1170,5 +1420,42 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: Spacing.lg,
     fontStyle: 'italic',
+  },
+  
+  // Date Picker Modal Styles
+  datePickerModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    width: '95%',
+    maxWidth: 450,
+    maxHeight: '90%',
+    ...Shadow.large,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  dateRangeLabel: {
+    ...Typography.h4,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  applyDateRangeButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    marginTop: Spacing.lg,
+    ...Shadow.small,
+  },
+  applyDateRangeButtonText: {
+    ...Typography.button,
+    color: Colors.textLight,
+    fontWeight: 'bold',
   },
 });
