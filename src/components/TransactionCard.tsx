@@ -3,6 +3,7 @@ import {View, Text, StyleSheet, Pressable} from 'react-native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import {Transaction, TransactionType} from '../models/Transaction';
 import {formatDate, formatCurrency} from '../utils/helpers';
+import {moderateScale} from '../utils/responsive';
 
 interface TransactionCardProps {
   transaction: Transaction;
@@ -90,9 +91,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     overflow: 'hidden',
     ...Shadow.small,
+    minHeight: moderateScale(90, 0.3),
   },
   typeIndicator: {
-    width: 4,
+    width: moderateScale(4, 0.2),
   },
   content: {
     flex: 1,

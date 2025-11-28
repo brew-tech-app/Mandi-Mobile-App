@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {View, Text, StyleSheet, Pressable, Animated, Modal} from 'react-native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
+import {moderateScale, getResponsiveValue} from '../utils/responsive';
 
 interface FABMenuItem {
   label: string;
@@ -94,10 +95,13 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({items
   );
 };
 
+const FAB_SIZE = getResponsiveValue(50, 56, 60);
+const MENU_ITEM_SIZE = getResponsiveValue(42, 48, 52);
+
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 80,
+    bottom: moderateScale(80, 0.3),
     right: Spacing.md,
     alignItems: 'flex-end',
     zIndex: 1000,
@@ -112,16 +116,16 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     ...Shadow.large,
   },
   fabIcon: {
-    fontSize: 32,
+    fontSize: moderateScale(32, 0.3),
     color: Colors.textLight,
     fontWeight: 'bold',
   },
@@ -152,15 +156,15 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   menuItemCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: MENU_ITEM_SIZE,
+    height: MENU_ITEM_SIZE,
+    borderRadius: MENU_ITEM_SIZE / 2,
     justifyContent: 'center',
     alignItems: 'center',
     ...Shadow.medium,
   },
   menuItemIcon: {
-    fontSize: 24,
+    fontSize: moderateScale(24, 0.3),
     color: Colors.textLight,
     fontWeight: 'bold',
   },

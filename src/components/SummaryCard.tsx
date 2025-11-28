@@ -2,6 +2,7 @@ import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import {formatCurrency} from '../utils/helpers';
+import {moderateScale} from '../utils/responsive';
 
 interface SummaryCardProps {
   title: string;
@@ -29,8 +30,9 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.md,
-    borderLeftWidth: 4,
+    borderLeftWidth: moderateScale(4, 0.2),
     ...Shadow.small,
+    minHeight: moderateScale(80, 0.3),
   },
   title: {
     ...Typography.body2,

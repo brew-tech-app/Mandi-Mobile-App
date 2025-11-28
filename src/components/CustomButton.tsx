@@ -1,6 +1,7 @@
 import React from 'react';
 import {Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle} from 'react-native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
+import {moderateScale} from '../utils/responsive';
 
 interface CustomButtonProps {
   title: string;
@@ -72,6 +73,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: moderateScale(48, 0.3),
     ...Shadow.small,
   },
   buttonPrimary: {
@@ -82,7 +84,7 @@ const styles = StyleSheet.create({
   },
   buttonOutline: {
     backgroundColor: 'transparent',
-    borderWidth: 2,
+    borderWidth: moderateScale(2, 0.2),
     borderColor: Colors.primary,
   },
   buttonDanger: {

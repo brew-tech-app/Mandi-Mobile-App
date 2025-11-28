@@ -1,3 +1,10 @@
+import {
+  fontScale,
+  responsiveSpacing,
+  moderateScale,
+  getResponsiveValue,
+} from '../utils/responsive';
+
 /**
  * Color palette for the app - Grain Ledger Theme
  */
@@ -29,67 +36,67 @@ export const Colors = {
 };
 
 /**
- * Typography
+ * Typography - Responsive font sizes
  */
 export const Typography = {
   h1: {
-    fontSize: 32,
+    fontSize: fontScale(32),
     fontWeight: 'bold' as const,
     color: Colors.textPrimary,
   },
   h2: {
-    fontSize: 28,
+    fontSize: fontScale(28),
     fontWeight: 'bold' as const,
     color: Colors.textPrimary,
   },
   h3: {
-    fontSize: 24,
+    fontSize: fontScale(24),
     fontWeight: '600' as const,
     color: Colors.textPrimary,
   },
   h4: {
-    fontSize: 20,
+    fontSize: fontScale(20),
     fontWeight: '600' as const,
     color: Colors.textPrimary,
   },
   body1: {
-    fontSize: 16,
+    fontSize: fontScale(16),
     color: Colors.textPrimary,
   },
   body2: {
-    fontSize: 14,
+    fontSize: fontScale(14),
     color: Colors.textSecondary,
   },
   caption: {
-    fontSize: 12,
+    fontSize: fontScale(12),
     color: Colors.textSecondary,
   },
   button: {
-    fontSize: 16,
+    fontSize: fontScale(16),
     fontWeight: '600' as const,
   },
 };
 
 /**
- * Spacing
+ * Spacing - Responsive spacing values
  */
 export const Spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 48,
+  xs: responsiveSpacing(4),
+  sm: responsiveSpacing(8),
+  md: responsiveSpacing(16),
+  lg: responsiveSpacing(24),
+  xl: responsiveSpacing(32),
+  xxl: responsiveSpacing(48),
 };
 
 /**
- * Border Radius
+ * Border Radius - Responsive border radius
  */
 export const BorderRadius = {
-  sm: 4,
-  md: 8,
-  lg: 12,
-  xl: 16,
+  sm: moderateScale(4, 0.2),
+  md: moderateScale(8, 0.2),
+  lg: moderateScale(12, 0.2),
+  xl: moderateScale(16, 0.2),
   round: 999,
 };
 

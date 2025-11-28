@@ -1,3 +1,7 @@
+// Re-export responsive utilities for easy access
+export * from '../utils/responsive';
+export {useResponsive} from '../hooks/useResponsive';
+
 /**
  * Grain Types
  */
