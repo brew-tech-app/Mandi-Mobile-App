@@ -68,6 +68,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
   
   const [loading, setLoading] = useState(false);
   const [farmerRepository, setFarmerRepository] = useState<FarmerRepository | null>(null);
+  const [activeLoanAmount, setActiveLoanAmount] = useState<number>(0);
 
   useEffect(() => {
     initializeFarmerRepository();
@@ -121,6 +122,14 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
         setFarmerName('');
         setFarmerAddress('');
       }
+      
+      // Check for active loans by phone number
+      const allLendTransactions = await TransactionService.getAllLendTransactions();
+      const lendTransactions = allLendTransactions.filter(t => t.personPhone === farmerPhone);
+      const activeLoan = lendTransactions
+        .filter(t => t.lendType === 'MONEY' && t.balanceAmount > 0)
+        .reduce((sum, t) => sum + t.balanceAmount, 0);
+      setActiveLoanAmount(activeLoan);
     } catch (error) {
       console.error('Error checking farmer:', error);
     } finally {
@@ -270,6 +279,31 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       return;
     }
 
+    // Check for active loans before saving
+    if (activeLoanAmount > 0) {
+      Alert.alert(
+        'Active Loan Found',
+        `${farmerName} has an outstanding loan of ₹${activeLoanAmount.toFixed(0)}.\n\nDo you want to proceed with the transaction?\n\nNote: Consider settling the loan before or after this transaction.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {},
+          },
+          {
+            text: 'Proceed',
+            onPress: () => saveTransaction(),
+          },
+        ],
+      );
+      return;
+    }
+
+    // No active loan, proceed directly
+    await saveTransaction();
+  };
+
+  const saveTransaction = async () => {
     setLoading(true);
     try {
       // Save farmer if new
@@ -586,6 +620,16 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
             <View style={styles.calculatedRow}>
               <Text style={styles.calculatedLabel}>Total Weight (Quintal):</Text>
               <Text style={styles.calculatedValue}>{totalWeight.toFixed(2)} Qtl</Text>
+            </View>
+            <View style={styles.calculatedRow}>
+              <Text style={styles.calculatedLabel}>Total Amount:</Text>
+              <Text style={styles.calculatedValue}>₹{grossAmount}</Text>
+            </View>
+            <View style={styles.calculatedRow}>
+              <Text style={styles.calculatedLabel}>Average Price/Quintal:</Text>
+              <Text style={styles.calculatedValue}>
+                ₹{totalWeight > 0 ? (grossAmount / totalWeight).toFixed(2) : '0.00'}
+              </Text>
             </View>
           </View>
         </View>

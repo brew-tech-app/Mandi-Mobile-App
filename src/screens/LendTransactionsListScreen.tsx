@@ -100,6 +100,39 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
     });
   };
 
+  /**
+   * Extract interest rate from transaction description
+   */
+  const getInterestRate = (transaction: LendTransaction): number => {
+    if (!transaction?.description) return 0;
+    const match = transaction.description.match(/Interest Rate:\s*(\d+\.?\d*)/);
+    return match ? parseFloat(match[1]) : 0;
+  };
+
+  /**
+   * Calculate interest for current balance up to today
+   */
+  const calculateCurrentInterest = (transaction: LendTransaction): number => {
+    const rate = getInterestRate(transaction);
+    if (rate === 0 || transaction.balanceAmount === 0) return 0;
+
+    // Calculate from transaction date to today for simplicity in list view
+    // Note: This is a simplified calculation. For accurate interest, use the receipt screen
+    const startDate = new Date(transaction.date);
+    const today = new Date();
+    const days = Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const interest = (transaction.balanceAmount * rate * days) / (100 * 30);
+    return Math.round(interest); // Round to nearest whole number
+  };
+
+  /**
+   * Calculate total amount with interest
+   */
+  const getTotalWithInterest = (transaction: LendTransaction): number => {
+    const interest = calculateCurrentInterest(transaction);
+    return transaction.balanceAmount + interest;
+  };
+
   const renderTransaction = ({item}: {item: LendTransaction}) => (
     <TouchableOpacity
       style={styles.transactionCard}
@@ -129,22 +162,34 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
 
       <View style={styles.transactionFooter}>
         <View style={styles.amountSection}>
-          <Text style={styles.amountLabel}>Total Amount</Text>
-          <Text style={styles.amountValue}>₹{(item.amount || 0).toFixed(2)}</Text>
+          <Text style={styles.amountLabel}>Loan Amount</Text>
+          <Text style={styles.amountValue}>₹{(item.amount || 0).toFixed(0)}</Text>
         </View>
         <View style={styles.amountSection}>
           <Text style={styles.amountLabel}>Returned</Text>
           <Text style={[styles.amountValue, styles.returnedAmount]}>
-            ₹{item.returnedAmount.toFixed(2)}
+            ₹{item.returnedAmount.toFixed(0)}
           </Text>
         </View>
         <View style={styles.amountSection}>
           <Text style={styles.amountLabel}>Balance</Text>
           <Text style={[styles.amountValue, styles.balanceAmount]}>
-            ₹{item.balanceAmount.toFixed(2)}
+            ₹{item.balanceAmount.toFixed(0)}
           </Text>
         </View>
       </View>
+      {getInterestRate(item) > 0 && item.balanceAmount > 0 && (
+        <View style={styles.interestFooter}>
+          <View style={styles.interestSection}>
+            <Text style={styles.interestLabel}>Interest ({getInterestRate(item)}%/month)</Text>
+            <Text style={styles.interestValue}>₹{calculateCurrentInterest(item).toFixed(0)}</Text>
+          </View>
+          <View style={styles.totalSection}>
+            <Text style={styles.totalLabel}>Total Due</Text>
+            <Text style={styles.totalValue}>₹{getTotalWithInterest(item).toFixed(0)}</Text>
+          </View>
+        </View>
+      )}
     </TouchableOpacity>
   );
 
@@ -458,6 +503,42 @@ const styles = StyleSheet.create({
   },
   balanceAmount: {
     color: Colors.error,
+  },
+  interestFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  interestSection: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  interestLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  interestValue: {
+    ...Typography.body2,
+    color: Colors.warning,
+    fontWeight: 'bold',
+  },
+  totalSection: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  totalLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  totalValue: {
+    ...Typography.h4,
+    color: Colors.primary,
+    fontWeight: 'bold',
   },
   emptyContainer: {
     padding: Spacing.xl,

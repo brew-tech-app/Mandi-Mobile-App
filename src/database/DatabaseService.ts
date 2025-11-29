@@ -69,10 +69,38 @@ export class DatabaseService {
       await this.database.executeSql(TableSchemas.LEND_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.EXPENSE_TRANSACTIONS);
       await this.database.executeSql(PaymentTableSchema);
+      
+      // Run migrations
+      await this.runMigrations();
+      
       console.log('All tables created successfully');
     } catch (error) {
       console.error('Error creating tables:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Run database migrations
+   */
+  private async runMigrations(): Promise<void> {
+    if (!this.database) {
+      throw new Error('Database not initialized');
+    }
+
+    try {
+      // Migration: Add labour_charges_settled column to buy_transactions
+      await this.database.executeSql(`
+        ALTER TABLE buy_transactions ADD COLUMN labour_charges_settled INTEGER DEFAULT 0
+      `).catch(() => {
+        // Column already exists, ignore error
+        console.log('labour_charges_settled column already exists');
+      });
+      
+      console.log('Migrations completed successfully');
+    } catch (error) {
+      console.error('Error running migrations:', error);
+      // Don't throw, migrations might fail if already applied
     }
   }
 

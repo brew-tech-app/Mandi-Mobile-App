@@ -25,9 +25,9 @@ export const getToday = (): string => {
  * Currency formatting utilities
  */
 export const formatCurrency = (amount: number): string => {
-  return `₹${amount.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+  return `₹${Math.round(amount).toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   })}`;
 };
 

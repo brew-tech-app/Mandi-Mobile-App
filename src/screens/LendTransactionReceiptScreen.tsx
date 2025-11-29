@@ -68,7 +68,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
   ): number => {
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     const interest = (principal * ratePerMonth * days) / (100 * 30);
-    return Math.round(interest * 100) / 100; // Round to 2 decimal places
+    return Math.round(interest); // Round to nearest whole number
   };
 
   /**
@@ -205,12 +205,12 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
       Alert.alert(
         'Payment Breakdown',
         `Total Payment: ₹${amount.toFixed(2)}\n` +
-        `Interest Payment: ₹${interestPayment.toFixed(2)}\n` +
+        `Interest Payment: ₹${interestPayment.toFixed(0)}\n` +
         `Principal Payment: ₹${principalPayment.toFixed(2)}\n\n` +
         `Current Principal: ₹${currentPrincipal.toFixed(2)}\n` +
         `New Principal: ₹${(currentPrincipal - principalPayment).toFixed(2)}\n\n` +
-        `Accrued Interest (since last payment till ${formatDate(paymentDate)}): ₹${totalInterest.toFixed(2)}\n` +
-        `Remaining Interest: ₹${remainingInterest.toFixed(2)}\n\n` +
+        `Accrued Interest (since last payment till ${formatDate(paymentDate)}): ₹${totalInterest.toFixed(0)}\n` +
+        `Remaining Interest: ₹${remainingInterest.toFixed(0)}\n\n` +
         (interestPaidInFull && principalPayment < currentPrincipal
           ? `✓ Full interest paid! Future interest will be calculated from ${formatDate(paymentDate)} on remaining principal.`
           : ''),
@@ -249,7 +249,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
         paymentDate: paymentDate.toISOString(),
         paymentMode: paymentMode,
         notes: paymentNotes || 
-          `Payment: ₹${amount.toFixed(2)} (Interest: ₹${interestPayment.toFixed(2)}, Principal: ₹${principalPayment.toFixed(2)})`,
+          `Payment: ₹${amount.toFixed(2)} (Interest: ₹${interestPayment.toFixed(0)}, Principal: ₹${principalPayment.toFixed(2)})`,
       });
 
       // Update transaction amounts
@@ -380,13 +380,13 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Total Interest:</Text>
                 <Text style={[styles.amountValue, styles.warningAmount]}>
-                  ₹{totalInterest.toFixed(2)}
+                  ₹{totalInterest.toFixed(0)}
                 </Text>
               </View>
               <View style={[styles.detailRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total Amount with Interest:</Text>
                 <Text style={styles.totalValue}>
-                  ₹{totalAmountWithInterest.toFixed(2)}
+                  ₹{totalAmountWithInterest.toFixed(0)}
                 </Text>
               </View>
             </View>
@@ -399,7 +399,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
                   <View key={index} style={styles.breakdownItem}>
                     <Text style={styles.breakdownPeriod}>{item.period}</Text>
                     <Text style={styles.breakdownDetails}>
-                      ₹{item.principal.toFixed(0)} × {rate}% × {item.days} days = ₹{item.interest.toFixed(2)}
+                      ₹{item.principal.toFixed(0)} × {rate}% × {item.days} days = ₹{item.interest.toFixed(0)}
                     </Text>
                   </View>
                 ))}
@@ -437,7 +437,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
             />
             <View style={{height: Spacing.md}} />
             <CustomButton
-              title={`Settle Loan (₹${totalAmountWithInterest.toFixed(2)})`}
+              title={`Settle Loan (₹${totalAmountWithInterest.toFixed(0)})`}
               onPress={() => openPaymentModal('FINAL')}
             />
           </View>
@@ -477,7 +477,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
                   <View style={styles.modalSection}>
                     <View style={styles.interestInfoBox}>
                       <Text style={styles.interestInfoLabel}>Interest (till {formatDate(paymentDate)})</Text>
-                      <Text style={styles.interestInfoValue}>₹{interestUpToDate.toFixed(2)}</Text>
+                      <Text style={styles.interestInfoValue}>₹{interestUpToDate.toFixed(0)}</Text>
                     </View>
                     <View style={styles.interestInfoBox}>
                       <Text style={styles.interestInfoLabel}>Current Principal</Text>
@@ -496,7 +496,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
                         keyboardType="decimal-pad"
                       />
                       <Text style={styles.modalHint}>
-                        Max: ₹{amountUpToDate.toFixed(2)} (Principal + Interest)
+                        Max: ₹{amountUpToDate.toFixed(0)} (Principal + Interest)
                       </Text>
                       <Text style={styles.modalHint}>
                         Note: Interest will be deducted first, remaining will reduce principal
@@ -508,10 +508,10 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
                     <View style={styles.modalSection}>
                       <Text style={styles.modalLabel}>Settlement Amount</Text>
                       <Text style={styles.settlementAmount}>
-                        ₹{amountUpToDate.toFixed(2)}
+                        ₹{amountUpToDate.toFixed(0)}
                       </Text>
                       <Text style={styles.modalHint}>
-                        Principal: ₹{currentPrincipal.toFixed(2)} + Interest: ₹{interestUpToDate.toFixed(2)}
+                        Principal: ₹{currentPrincipal.toFixed(2)} + Interest: ₹{interestUpToDate.toFixed(0)}
                       </Text>
                     </View>
                   )}

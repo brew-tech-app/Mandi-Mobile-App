@@ -29,13 +29,15 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
   const [balanceInput, setBalanceInput] = useState('');
   const [dateRange, setDateRange] = useState({start: new Date(), end: new Date()});
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [customViewMode, setCustomViewMode] = useState<'range' | 'single'>('range');
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [totalStock, setTotalStock] = useState<number>(0);
   const [stockByGrainType, setStockByGrainType] = useState<StockByGrainType[]>([]);
   const [isStockModalVisible, setIsStockModalVisible] = useState(false);
   const [isProfitModalVisible, setIsProfitModalVisible] = useState(false);
   const [profitTab, setProfitTab] = useState<'buy' | 'sell' | 'interest'>('buy');
+  const [isLabourModalVisible, setIsLabourModalVisible] = useState(false);
+  const [labourTransactions, setLabourTransactions] = useState<any[]>([]);
+  const [loadingLabour, setLoadingLabour] = useState(false);
 
   const loadDashboardData = async () => {
     try {
@@ -82,7 +84,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           data = await TransactionService.getQuarterlyOperationalSummary();
           break;
         case 'custom':
-          if (customViewMode === 'single' && selectedDate) {
+          if (selectedDate) {
             // For single date, set both start and end to the same date
             const endOfDay = new Date(selectedDate);
             endOfDay.setHours(23, 59, 59, 999);
@@ -91,11 +93,8 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               endOfDay,
             );
           } else {
-            // For range mode
-            data = await TransactionService.getDashboardSummaryByDateRange(
-              dateRange.start,
-              dateRange.end,
-            );
+            // Default to today if no date selected
+            data = await TransactionService.getDailyOperationalSummary();
           }
           break;
         default:
@@ -169,7 +168,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
       calculateDateRange();
     }
     loadSummaryByTab();
-  }, [selectedTab, selectedDate, customViewMode]);
+  }, [selectedTab, selectedDate]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -188,21 +187,25 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
     {
       label: 'Buy',
       color: Colors.buy,
+      icon: 'cart-plus',
       onPress: () => navigation.navigate('AddBuyTransactionModal'),
     },
     {
       label: 'Sell',
       color: Colors.sell,
+      icon: 'cash-register',
       onPress: () => navigation.navigate('AddSellTransactionModal'),
     },
     {
       label: 'Lend',
       color: Colors.lend,
+      icon: 'hand-coin',
       onPress: () => navigation.navigate('AddLendTransactionModal'),
     },
     {
       label: 'Expense',
       color: Colors.expense,
+      icon: 'receipt-text',
       onPress: () => navigation.navigate('AddExpenseTransactionModal'),
     },
   ];
@@ -335,47 +338,17 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           {/* Custom Date Picker Section */}
           {selectedTab === 'custom' && (
             <View style={styles.customDateSection}>
-              {/* View Mode Toggle */}
-              <View style={styles.viewModeToggle}>
-                <TouchableOpacity
-                  style={[
-                    styles.viewModeButton,
-                    customViewMode === 'range' && styles.viewModeButtonActive
-                  ]}
-                  onPress={() => setCustomViewMode('range')}>
-                  <Icon name="calendar-range" size={20} color={customViewMode === 'range' ? Colors.textLight : Colors.textSecondary} />
-                  <Text style={[
-                    styles.viewModeText,
-                    customViewMode === 'range' && styles.viewModeTextActive
-                  ]}>Date Range</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.viewModeButton,
-                    customViewMode === 'single' && styles.viewModeButtonActive
-                  ]}
-                  onPress={() => setCustomViewMode('single')}>
-                  <Icon name="calendar" size={20} color={customViewMode === 'single' ? Colors.textLight : Colors.textSecondary} />
-                  <Text style={[
-                    styles.viewModeText,
-                    customViewMode === 'single' && styles.viewModeTextActive
-                  ]}>Single Date</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Date Selection Button */}
               <TouchableOpacity
                 style={styles.datePickerButton}
                 onPress={() => setIsDatePickerVisible(true)}>
                 <Icon name="calendar-month" size={24} color={Colors.primary} />
                 <Text style={styles.datePickerButtonText}>
-                  {customViewMode === 'single' && selectedDate
-                    ? `Selected: ${formatDate(selectedDate.toISOString())}`
-                    : customViewMode === 'range'
-                    ? `${formatDate(dateRange.start.toISOString())} - ${formatDate(dateRange.end.toISOString())}`
-                    : 'Select Date'}
+                  {selectedDate
+                    ? `📅 ${formatDate(selectedDate.toISOString())}`
+                    : '📅 Select Date to View Summary'}
                 </Text>
               </TouchableOpacity>
+              <Text style={styles.datePickerHint}>Tap to select a date</Text>
             </View>
           )}
         </View>
@@ -428,11 +401,29 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
             </TouchableOpacity>
 
             {/* Labour Charges */}
-            <View style={[styles.stackCard, styles.purpleCard]}>
+            <TouchableOpacity 
+              style={[styles.stackCard, styles.purpleCard]}
+              onPress={async () => {
+                setIsLabourModalVisible(true);
+                setLoadingLabour(true);
+                try {
+                  const transactions = await TransactionService.getAllBuyTransactions();
+                  const labourTxns = transactions
+                    .filter((t: any) => (t.labourCharges || 0) > 0)
+                    .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                  setLabourTransactions(labourTxns);
+                } catch (error) {
+                  console.error('Error loading labour transactions:', error);
+                } finally {
+                  setLoadingLabour(false);
+                }
+              }}
+              activeOpacity={0.8}>
               <Icon name="account-clock" size={32} color={Colors.purple} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalBuyLabourCharges || 0)}</Text>
               <Text style={styles.metricLabel}>Total Labour Charges</Text>
-            </View>
+              <Text style={styles.tapHint}>Tap to view details</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -723,109 +714,191 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
         <View style={styles.modalOverlay}>
           <View style={styles.datePickerModalContent}>
             <View style={styles.datePickerHeader}>
-              <Text style={styles.modalTitle}>
-                {customViewMode === 'single' ? 'Select Date' : 'Select Date Range'}
-              </Text>
+              <Text style={styles.modalTitle}>Select Date</Text>
               <TouchableOpacity onPress={() => setIsDatePickerVisible(false)}>
                 <Icon name="close" size={24} color={Colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            {customViewMode === 'single' ? (
-              // Single Date Picker
-              <Calendar
-                onDayPress={(day: {dateString: string}) => {
-                  setSelectedDate(new Date(day.dateString));
-                  setIsDatePickerVisible(false);
-                  setTimeout(() => loadSummaryByTab(), 100);
-                }}
-                markedDates={
-                  selectedDate
-                    ? {
-                        [selectedDate.toISOString().split('T')[0]]: {
-                          selected: true,
-                          selectedColor: Colors.primary,
-                        },
-                      }
-                    : {}
-                }
-                theme={{
-                  backgroundColor: Colors.surface,
-                  calendarBackground: Colors.surface,
-                  textSectionTitleColor: Colors.textPrimary,
-                  selectedDayBackgroundColor: Colors.primary,
-                  selectedDayTextColor: Colors.surface,
-                  todayTextColor: Colors.primary,
-                  dayTextColor: Colors.textPrimary,
-                  textDisabledColor: Colors.textSecondary,
-                  monthTextColor: Colors.textPrimary,
-                  arrowColor: Colors.primary,
-                }}
-              />
-            ) : (
-              // Date Range Picker
-              <>
-                <Text style={styles.dateRangeLabel}>Start Date:</Text>
-                <Calendar
-                  onDayPress={(day: {dateString: string}) => {
-                    const newStart = new Date(day.dateString);
-                    setDateRange({...dateRange, start: newStart});
-                  }}
-                  markedDates={{
-                    [dateRange.start.toISOString().split('T')[0]]: {
-                      selected: true,
-                      selectedColor: Colors.primary,
-                    },
-                  }}
-                  theme={{
-                    backgroundColor: Colors.surface,
-                    calendarBackground: Colors.surface,
-                    textSectionTitleColor: Colors.textPrimary,
-                    selectedDayBackgroundColor: Colors.primary,
-                    selectedDayTextColor: Colors.surface,
-                    todayTextColor: Colors.primary,
-                    dayTextColor: Colors.textPrimary,
-                    textDisabledColor: Colors.textSecondary,
-                    monthTextColor: Colors.textPrimary,
-                    arrowColor: Colors.primary,
-                  }}
-                />
+            <Calendar
+              maxDate={new Date().toISOString().split('T')[0]}
+              onDayPress={(day: {dateString: string}) => {
+                const selected = new Date(day.dateString);
+                selected.setHours(0, 0, 0, 0);
+                setSelectedDate(selected);
+                setIsDatePickerVisible(false);
                 
-                <Text style={styles.dateRangeLabel}>End Date:</Text>
-                <Calendar
-                  onDayPress={(day: {dateString: string}) => {
-                    const newEnd = new Date(day.dateString);
-                    setDateRange({...dateRange, end: newEnd});
-                  }}
-                  minDate={dateRange.start.toISOString().split('T')[0]}
-                  markedDates={{
-                    [dateRange.end.toISOString().split('T')[0]]: {
-                      selected: true,
-                      selectedColor: Colors.success,
-                    },
-                  }}
-                  theme={{
-                    backgroundColor: Colors.surface,
-                    calendarBackground: Colors.surface,
-                    textSectionTitleColor: Colors.textPrimary,
-                    selectedDayBackgroundColor: Colors.success,
-                    selectedDayTextColor: Colors.surface,
-                    todayTextColor: Colors.primary,
-                    dayTextColor: Colors.textPrimary,
-                    textDisabledColor: Colors.textSecondary,
-                    monthTextColor: Colors.textPrimary,
-                    arrowColor: Colors.primary,
-                  }}
-                />
+                // Load summary with the selected date immediately
+                setTimeout(async () => {
+                  try {
+                    const endOfDay = new Date(selected);
+                    endOfDay.setHours(23, 59, 59, 999);
+                    const data = await TransactionService.getDashboardSummaryByDateRange(
+                      selected,
+                      endOfDay,
+                    );
+                    setSummary(data);
+                  } catch (error) {
+                    console.error('Error loading summary for selected date:', error);
+                  }
+                }, 100);
+              }}
+              markedDates={
+                selectedDate
+                  ? {
+                      [selectedDate.toISOString().split('T')[0]]: {
+                        selected: true,
+                        selectedColor: Colors.primary,
+                      },
+                    }
+                  : {}
+              }
+              theme={{
+                backgroundColor: Colors.surface,
+                calendarBackground: Colors.surface,
+                textSectionTitleColor: Colors.textPrimary,
+                selectedDayBackgroundColor: Colors.primary,
+                selectedDayTextColor: Colors.surface,
+                todayTextColor: Colors.primary,
+                dayTextColor: Colors.textPrimary,
+                textDisabledColor: Colors.textSecondary,
+                monthTextColor: Colors.textPrimary,
+                arrowColor: Colors.primary,
+              }}
+            />
+            
+            <View style={styles.calendarFooter}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setIsDatePickerVisible(false)}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
-                <TouchableOpacity
-                  style={styles.applyDateRangeButton}
-                  onPress={() => {
-                    setIsDatePickerVisible(false);
-                    setTimeout(() => loadSummaryByTab(), 100);
-                  }}>
-                  <Text style={styles.applyDateRangeButtonText}>Apply Date Range</Text>
-                </TouchableOpacity>
+      {/* Labour Charges Modal */}
+      <Modal
+        visible={isLabourModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsLabourModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.labourModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Labour Charges Transactions</Text>
+              <TouchableOpacity onPress={() => setIsLabourModalVisible(false)}>
+                <Icon name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingLabour ? (
+              <View style={styles.modalLoadingContainer}>
+                <Text style={styles.modalLoadingText}>Loading...</Text>
+              </View>
+            ) : labourTransactions.length === 0 ? (
+              <View style={styles.modalEmptyContainer}>
+                <Icon name="information-outline" size={48} color={Colors.textSecondary} />
+                <Text style={styles.modalEmptyText}>No labour charges transactions found</Text>
+              </View>
+            ) : (
+              <>
+                {/* Settle All Button */}
+                {labourTransactions.some((t: any) => !t.labourChargesSettled) && (
+                  <View style={styles.settleAllContainer}>
+                    <View style={styles.settleAllInfo}>
+                      <Text style={styles.settleAllLabel}>Total Unsettled:</Text>
+                      <Text style={styles.settleAllAmount}>
+                        {formatCurrency(
+                          labourTransactions
+                            .filter((t: any) => !t.labourChargesSettled)
+                            .reduce((sum: number, t: any) => sum + (t.labourCharges || 0), 0)
+                        )}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.settleAllButton}
+                      onPress={async () => {
+                        const unsettledTransactions = labourTransactions.filter((t: any) => !t.labourChargesSettled);
+                        const totalAmount = unsettledTransactions.reduce(
+                          (sum: number, t: any) => sum + (t.labourCharges || 0),
+                          0
+                        );
+
+                        Alert.alert(
+                          'Settle All Labour Charges',
+                          `Settle ${formatCurrency(totalAmount)} for ${unsettledTransactions.length} transaction(s)?\n\nThis will deduct the total amount from your current cash balance.`,
+                          [
+                            {text: 'Cancel', style: 'cancel'},
+                            {
+                              text: 'Settle All',
+                              style: 'destructive',
+                              onPress: async () => {
+                                try {
+                                  const currentBalance = await CashBalanceService.getCurrentBalance();
+                                  const newBalance = currentBalance - totalAmount;
+
+                                  // Update cash balance
+                                  await CashBalanceService.setBalance(newBalance);
+
+                                  // Mark all unsettled transactions as settled
+                                  for (const transaction of unsettledTransactions) {
+                                    await TransactionService.updateBuyTransaction(transaction.id, {
+                                      ...transaction,
+                                      labourChargesSettled: true,
+                                    });
+                                  }
+
+                                  setCurrentCashBalance(newBalance);
+
+                                  // Update local state
+                                  const updatedTransactions = labourTransactions.map((t: any) => ({
+                                    ...t,
+                                    labourChargesSettled: true,
+                                  }));
+                                  setLabourTransactions(updatedTransactions);
+
+                                  await loadDashboardData();
+
+                                  Alert.alert('Success', `All ${unsettledTransactions.length} labour charges settled successfully`);
+                                } catch (error) {
+                                  console.error('Error settling all labour charges:', error);
+                                  Alert.alert('Error', 'Failed to settle labour charges');
+                                }
+                              },
+                            },
+                          ],
+                        );
+                      }}>
+                      <Icon name="cash-multiple" size={18} color={Colors.textLight} />
+                      <Text style={styles.settleAllButtonText}>Settle All</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <ScrollView style={styles.labourList} showsVerticalScrollIndicator={false}>
+                {labourTransactions.map((transaction: any) => (
+                  <View key={transaction.id} style={styles.labourItem}>
+                    <View style={styles.labourItemHeader}>
+                      <View style={styles.labourItemLeft}>
+                        <Text style={styles.labourSupplierName}>{transaction.supplierName}</Text>
+                        <Text style={styles.labourDate}>{formatDate(transaction.date)}</Text>
+                        <Text style={styles.labourGrain}>{transaction.grainType} - {transaction.quantity} Qtl</Text>
+                      </View>
+                      <View style={styles.labourItemRight}>
+                        <Text style={styles.labourAmount}>{formatCurrency(transaction.labourCharges || 0)}</Text>
+                        {transaction.labourChargesSettled && (
+                          <View style={styles.settledBadge}>
+                            <Icon name="check-circle" size={16} color={Colors.success} />
+                            <Text style={styles.settledText}>Settled</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
               </>
             )}
           </View>
@@ -1004,36 +1077,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     ...Shadow.small,
   },
-  viewModeToggle: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  viewModeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.background,
-  },
-  viewModeButtonActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  viewModeText: {
-    ...Typography.body2,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  viewModeTextActive: {
-    color: Colors.textLight,
-  },
   datePickerButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1044,12 +1087,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.primary,
     backgroundColor: Colors.background,
+    marginBottom: Spacing.xs,
   },
   datePickerButtonText: {
     ...Typography.body2,
     flex: 1,
     color: Colors.textPrimary,
     fontWeight: '600',
+  },
+  datePickerHint: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
   
   // Two Column Layout
@@ -1438,22 +1487,176 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.md,
   },
-  dateRangeLabel: {
-    ...Typography.h4,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+  calendarFooter: {
     marginTop: Spacing.md,
-    marginBottom: Spacing.sm,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
-  applyDateRangeButton: {
-    backgroundColor: Colors.primary,
+  cancelButton: {
     paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.md,
     alignItems: 'center',
-    marginTop: Spacing.lg,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cancelButtonText: {
+    ...Typography.button,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+  },
+  
+  // Labour Charges Modal Styles
+  labourModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    width: '95%',
+    maxWidth: 500,
+    maxHeight: '85%',
+    ...Shadow.large,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalLoadingContainer: {
+    padding: Spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalLoadingText: {
+    ...Typography.body1,
+    color: Colors.textSecondary,
+    marginTop: Spacing.md,
+  },
+  modalEmptyContainer: {
+    padding: Spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalEmptyText: {
+    ...Typography.body1,
+    color: Colors.textSecondary,
+    marginTop: Spacing.md,
+    textAlign: 'center',
+  },
+  labourList: {
+    maxHeight: 500,
+  },
+  labourItem: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  labourItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  labourItemLeft: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  labourSupplierName: {
+    ...Typography.body1,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  labourDate: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  labourGrain: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+  },
+  labourItemRight: {
+    alignItems: 'flex-end',
+  },
+  labourAmount: {
+    ...Typography.h4,
+    fontWeight: 'bold',
+    color: Colors.purple,
+    marginBottom: Spacing.xs,
+  },
+  settledBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+  },
+  settledText: {
+    ...Typography.caption,
+    color: Colors.success,
+    fontWeight: '600',
+  },
+  settleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
     ...Shadow.small,
   },
-  applyDateRangeButtonText: {
+  settleButtonText: {
+    ...Typography.caption,
+    color: Colors.textLight,
+    fontWeight: '600',
+  },
+  settleAllContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.purple,
+  },
+  settleAllInfo: {
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  settleAllLabel: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  settleAllAmount: {
+    ...Typography.h3,
+    fontWeight: 'bold',
+    color: Colors.purple,
+  },
+  settleAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.success,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    ...Shadow.medium,
+  },
+  settleAllButtonText: {
     ...Typography.button,
     color: Colors.textLight,
     fontWeight: 'bold',

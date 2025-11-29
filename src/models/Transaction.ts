@@ -49,6 +49,7 @@ export interface BuyTransaction extends BaseTransaction {
   invoiceNumber?: string;
   commissionAmount?: number; // Commission earned from buy transaction
   labourCharges?: number; // Labour charges in buy transaction
+  labourChargesSettled?: boolean; // Whether labour charges have been settled
 }
 
 /**
@@ -131,6 +132,7 @@ export const TableSchemas = {
       invoice_number TEXT,
       commission_amount REAL DEFAULT 0,
       labour_charges REAL DEFAULT 0,
+      labour_charges_settled INTEGER DEFAULT 0,
       date TEXT NOT NULL,
       description TEXT,
       created_at TEXT NOT NULL,

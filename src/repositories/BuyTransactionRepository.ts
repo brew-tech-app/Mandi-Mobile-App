@@ -27,8 +27,8 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
       INSERT INTO ${this.tableName} (
         id, supplier_name, supplier_phone, grain_type, quantity, rate_per_quintal,
         total_amount, paid_amount, balance_amount, payment_status, vehicle_number,
-        invoice_number, commission_amount, labour_charges, date, description, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        invoice_number, commission_amount, labour_charges, labour_charges_settled, date, description, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
@@ -46,6 +46,7 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
       entity.invoiceNumber || null,
       entity.commissionAmount || 0,
       entity.labourCharges || 0,
+      entity.labourChargesSettled ? 1 : 0,
       entity.date,
       entity.description || null,
       timestamp,
@@ -148,6 +149,10 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
       updateFields.push('labour_charges = ?');
       params.push(entity.labourCharges);
     }
+    if (entity.labourChargesSettled !== undefined) {
+      updateFields.push('labour_charges_settled = ?');
+      params.push(entity.labourChargesSettled ? 1 : 0);
+    }
     if (entity.date !== undefined) {
       updateFields.push('date = ?');
       params.push(entity.date);
@@ -246,6 +251,7 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
       invoiceNumber: row.invoice_number,
       commissionAmount: row.commission_amount,
       labourCharges: row.labour_charges,
+      labourChargesSettled: row.labour_charges_settled === 1,
       date: row.date,
       description: row.description,
       createdAt: row.created_at,
