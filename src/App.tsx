@@ -3,6 +3,7 @@ import {SafeAreaView, StyleSheet, StatusBar, ActivityIndicator, View, Text} from
 import {AppNavigator} from './navigation/AppNavigator';
 import TransactionService from './services/TransactionService';
 import {Colors} from './constants/theme';
+import SyncIndicator from './components/SyncIndicator';
 
 /**
  * Main App Component
@@ -51,6 +52,7 @@ const App: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
+      <SyncIndicator />
       <AppNavigator />
     </SafeAreaView>
   );

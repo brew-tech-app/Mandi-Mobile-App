@@ -110,6 +110,17 @@ export class DatabaseService {
       `).catch((e) => {
         console.log('idx_sell_invoice_number already exists or could not be created', e?.message || e);
       });
+      // Migration: Create remote-local mapping table to keep track of cloud <-> local id mappings
+      await this.database.executeSql(`
+        CREATE TABLE IF NOT EXISTS remote_local_mappings (
+          remote_id TEXT PRIMARY KEY,
+          local_id TEXT,
+          entity_type TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `).catch((e) => {
+        console.log('remote_local_mappings table already exists or could not be created', e?.message || e);
+      });
       
       console.log('Migrations completed successfully');
     } catch (error) {

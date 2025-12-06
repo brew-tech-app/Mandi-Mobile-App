@@ -7,6 +7,8 @@ import AuthService from './AuthService';
 import TransactionService from './TransactionService';
 import CashBalanceService from './CashBalanceService';
 import DailyResetService from './DailyResetService';
+import DatabaseService from '../database/DatabaseService';
+import RemoteLocalMappingRepository from '../repositories/RemoteLocalMappingRepository';
 
 /**
  * Cloud Backup Service
@@ -17,6 +19,10 @@ class CloudBackupService {
   private readonly LAST_SYNC_KEY = 'last_sync_timestamp';
   private readonly PENDING_UPLOADS_KEY = 'pending_uploads';
   private readonly PENDING_META_KEY = 'pending_meta';
+  // Backoff strategy params
+  private readonly BASE_BACKOFF_MS = 60 * 1000; // 1 minute
+  private readonly MAX_BACKOFF_MS = 24 * 60 * 60 * 1000; // 24 hours
+  private mappingRepo: RemoteLocalMappingRepository | null = null;
   private netUnsubscribe: (() => void) | null = null;
 
   constructor() {
@@ -40,6 +46,32 @@ class CloudBackupService {
       });
     } catch (error) {
       // ignore
+    }
+  }
+
+  /**
+   * Return number of pending uploads (queued items)
+   */
+  public async getPendingUploadsCount(): Promise<number> {
+    try {
+      const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      const normalized = list.map((item: any) => (typeof item === 'string' ? {transactionId: item} : item));
+      return normalized.length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /**
+   * Whether there's pending meta waiting to be pushed
+   */
+  public async hasPendingMeta(): Promise<boolean> {
+    try {
+      const raw = await AsyncStorage.getItem(this.PENDING_META_KEY);
+      return !!raw;
+    } catch (e) {
+      return false;
     }
   }
 
@@ -80,6 +112,16 @@ class CloudBackupService {
       console.log(`Uploaded transaction ${transaction.id} to cloud`);
       // If upload succeeds, remove from pending list if present
       await this.dequeuePendingUpload(transaction.id);
+      // Create mapping record to mark remote<->local relationship
+      try {
+        await DatabaseService.initDatabase();
+        if (!this.mappingRepo) {
+          this.mappingRepo = new RemoteLocalMappingRepository(DatabaseService.getDatabase());
+        }
+        await this.mappingRepo.createMapping(docRef.id, transaction.id, transaction.transactionType);
+      } catch (e) {
+        console.warn('Failed to create remote-local mapping after upload', e);
+      }
     } catch (error) {
       console.error('Failed to upload transaction to cloud:', error);
       // On network-like errors, enqueue for later
@@ -190,19 +232,14 @@ class CloudBackupService {
 
       for (const doc of snapshot.docs) {
         const cloudTransaction = doc.data() as CloudTransaction;
-        const transaction = cloudTransaction.data as Transaction;
+        const remoteId = doc.id;
 
         try {
-          // Check if transaction already exists
-          const existing = await this.getLocalTransaction(transaction);
-          
-          if (!existing) {
-            // Create new transaction based on type
-            await this.createLocalTransaction(transaction);
-            restoredCount++;
-          }
+          // Attempt to create or merge based on cloud document
+          const created = await this.createLocalTransaction(cloudTransaction, remoteId);
+          if (created) restoredCount++;
         } catch (error) {
-          console.error(`Failed to restore transaction ${transaction.id}:`, error);
+          console.error(`Failed to restore cloud doc ${doc.id}:`, error);
         }
       }
 
@@ -221,10 +258,19 @@ class CloudBackupService {
   private async enqueuePendingUpload(transactionId: string): Promise<void> {
     try {
       const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
-      const list: string[] = raw ? JSON.parse(raw) : [];
-      if (!list.includes(transactionId)) {
-        list.push(transactionId);
-        await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(list));
+      const list = raw ? JSON.parse(raw) : [];
+      // Normalize legacy string entries
+      const normalized: Array<{transactionId: string; retryCount: number; nextAttempt?: number}> = [];
+      for (const item of list) {
+        if (typeof item === 'string') {
+          normalized.push({transactionId: item, retryCount: 0});
+        } else if (item && item.transactionId) {
+          normalized.push(item);
+        }
+      }
+      if (!normalized.find(e => e.transactionId === transactionId)) {
+        normalized.push({transactionId, retryCount: 0});
+        await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(normalized));
       }
     } catch (error) {
       console.error('Failed to enqueue pending upload:', error);
@@ -237,11 +283,19 @@ class CloudBackupService {
   private async dequeuePendingUpload(transactionId: string): Promise<void> {
     try {
       const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
-      const list: string[] = raw ? JSON.parse(raw) : [];
-      const idx = list.indexOf(transactionId);
+      const list = raw ? JSON.parse(raw) : [];
+      const normalized: Array<{transactionId: string; retryCount: number; nextAttempt?: number}> = [];
+      for (const item of list) {
+        if (typeof item === 'string') {
+          normalized.push({transactionId: item, retryCount: 0});
+        } else if (item && item.transactionId) {
+          normalized.push(item);
+        }
+      }
+      const idx = normalized.findIndex(e => e.transactionId === transactionId);
       if (idx !== -1) {
-        list.splice(idx, 1);
-        await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(list));
+        normalized.splice(idx, 1);
+        await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(normalized));
       }
     } catch (error) {
       console.error('Failed to dequeue pending upload:', error);
@@ -260,19 +314,75 @@ class CloudBackupService {
 
     try {
       const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
-      const list: string[] = raw ? JSON.parse(raw) : [];
-      for (const id of list) {
+      const list = raw ? JSON.parse(raw) : [];
+      // Normalize to entries
+      const entries: Array<{transactionId: string; retryCount: number; nextAttempt?: number}> = [];
+      for (const item of list) {
+        if (typeof item === 'string') entries.push({transactionId: item, retryCount: 0});
+        else if (item && item.transactionId) entries.push(item);
+      }
+
+      for (const entry of entries) {
         try {
-          // Try to find the transaction locally
-          const tx = await this.getLocalTransactionById(id);
-          if (tx) {
-            await this.uploadSingleTransaction(tx, user.uid);
-          } else {
-            // If no local transaction exists, remove from queue
-            await this.dequeuePendingUpload(id);
+          const now = Date.now();
+          if (entry.nextAttempt && entry.nextAttempt > now) {
+            // skip until nextAttempt
+            continue;
           }
+
+          // Try to find the transaction locally
+          const tx = await this.getLocalTransactionById(entry.transactionId);
+          if (!tx) {
+            // Nothing to upload - remove mapping/queue
+            await this.dequeuePendingUpload(entry.transactionId);
+            continue;
+          }
+
+          // Check if remote mapping already exists - if yes, skip uploading
+          try {
+            await DatabaseService.initDatabase();
+            if (!this.mappingRepo) {
+              this.mappingRepo = new RemoteLocalMappingRepository(DatabaseService.getDatabase());
+            }
+            const map = await this.mappingRepo.findByLocalId(entry.transactionId);
+            if (map && map.remoteId) {
+              // Already mapped to remote - dequeue
+              await this.dequeuePendingUpload(entry.transactionId);
+              continue;
+            }
+          } catch (e) {
+            // ignore mapping failures and attempt upload
+            console.warn('Mapping check failed (will attempt upload):', e);
+          }
+
+          // Attempt upload
+          await this.uploadSingleTransaction(tx, user.uid);
         } catch (e) {
-          console.error('Error processing pending upload for', id, e);
+          console.error('Error processing pending upload for', entry.transactionId, e);
+          // Increment retry and reschedule with exponential backoff
+          try {
+            const retries = (entry.retryCount || 0) + 1;
+            const backoff = Math.min(this.BASE_BACKOFF_MS * Math.pow(2, retries - 1), this.MAX_BACKOFF_MS);
+            entry.retryCount = retries;
+            entry.nextAttempt = Date.now() + backoff;
+            // Persist updated list
+            const rawAll = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
+            const all = rawAll ? JSON.parse(rawAll) : [];
+            // replace or append
+            let replaced = false;
+            for (let i = 0; i < all.length; i++) {
+              const it = all[i];
+              if ((typeof it === 'string' && it === entry.transactionId) || (it && it.transactionId === entry.transactionId)) {
+                all[i] = entry;
+                replaced = true;
+                break;
+              }
+            }
+            if (!replaced) all.push(entry);
+            await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(all));
+          } catch (ee) {
+            console.error('Failed to reschedule pending upload', ee);
+          }
           // continue with next id
         }
       }
@@ -550,6 +660,17 @@ class CloudBackupService {
       .collection('transactions')
       .doc(transaction.id)
       .set(cloudTransaction, {merge: true});
+    // Create mapping record if possible
+    try {
+      await DatabaseService.initDatabase();
+      if (!this.mappingRepo) {
+        this.mappingRepo = new RemoteLocalMappingRepository(DatabaseService.getDatabase());
+      }
+      await this.mappingRepo.createMapping(transaction.id, transaction.id, transaction.transactionType);
+    } catch (e) {
+      // Non-fatal: mapping failure should not block sync
+      console.warn('Failed to create mapping after uploadTransaction', e);
+    }
   }
 
   /**
@@ -577,14 +698,48 @@ class CloudBackupService {
    * Create local transaction from cloud doc, attempting deduplication by invoiceNumber first.
    * Returns true if a new local record was created, false if merged/updated existing.
    */
-  private async createLocalTransaction(cloudTransaction: any): Promise<boolean> {
+  private async createLocalTransaction(cloudTransaction: any, remoteId?: string): Promise<boolean> {
     const transaction: Transaction = cloudTransaction.data as Transaction;
     const transactionType: string = transaction.transactionType;
     const cloudUpdatedAt: string | undefined = cloudTransaction.updatedAt;
 
+    // Initialize mapping repo
+    try {
+      await DatabaseService.initDatabase();
+      if (!this.mappingRepo) this.mappingRepo = new RemoteLocalMappingRepository(DatabaseService.getDatabase());
+    } catch (e) {
+      // mapping not critical for creation
+      console.warn('Mapping repo init failed', e);
+    }
+
+    // If remoteId provided, check if we've already mapped this cloud doc
+    if (remoteId && this.mappingRepo) {
+      try {
+        const existingMap = await this.mappingRepo.findByRemoteId(remoteId);
+        if (existingMap && existingMap.localId) {
+          // Local record exists for this remote doc - ensure it's updated if cloud newer
+          const local = await this.getLocalTransactionById(existingMap.localId);
+          if (local) {
+            const localUpdated = local.updatedAt ? new Date(local.updatedAt) : null;
+            let cloudTime: Date | null = null;
+            if (cloudTransaction.serverUpdatedAt && cloudTransaction.serverUpdatedAt.toDate) {
+              cloudTime = cloudTransaction.serverUpdatedAt.toDate();
+            } else if (cloudUpdatedAt) {
+              cloudTime = new Date(cloudUpdatedAt);
+            }
+            if (cloudTime && (!localUpdated || cloudTime > localUpdated)) {
+              await this.updateLocalTransaction(transaction);
+            }
+          }
+          return false;
+        }
+      } catch (e) {
+        console.warn('Failed to check mapping by remoteId', e);
+      }
+    }
+
     // Helper to use invoice-based dedupe for BUY and SELL
     if (transactionType === 'BUY') {
-      // If local with same id exists, skip create
       const existingById = await TransactionService.getBuyTransaction(transaction.id);
       if (existingById) return false;
 
@@ -592,11 +747,13 @@ class CloudBackupService {
         const found = await TransactionService.findBuyByInvoiceNumber(transaction.invoiceNumber);
         if (found) {
           await TransactionService.updateBuyTransactionFromCloud(found.id, transaction as any, cloudUpdatedAt || transaction.updatedAt);
+          if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, found.id, 'BUY');
           return false;
         }
       }
 
-      await TransactionService.createBuyTransactionFromCloud(transaction as any);
+      const created = await TransactionService.createBuyTransactionFromCloud(transaction as any);
+      if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, created.id, 'BUY');
       return true;
     }
 
@@ -608,26 +765,66 @@ class CloudBackupService {
         const found = await TransactionService.findSellByInvoiceNumber(transaction.invoiceNumber);
         if (found) {
           await TransactionService.updateSellTransactionFromCloud(found.id, transaction as any, cloudUpdatedAt || transaction.updatedAt);
+          if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, found.id, 'SELL');
           return false;
         }
       }
 
-      await TransactionService.createSellTransactionFromCloud(transaction as any);
+      const created = await TransactionService.createSellTransactionFromCloud(transaction as any);
+      if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, created.id, 'SELL');
       return true;
     }
 
-    // For LEND and EXPENSE there is no invoiceNumber; use id-based check
+    // For LEND and EXPENSE there is no invoiceNumber; use heuristics to dedupe
     if (transactionType === 'LEND') {
       const existingById = await TransactionService.getLendTransaction(transaction.id);
       if (existingById) return false;
-      await TransactionService.createLendTransactionFromCloud(transaction as any);
+
+      // Heuristic: match on amount + date (same day) + person name
+      const allLends = await TransactionService.getAllLendTransactions();
+      const txDate = new Date(transaction.date);
+      const found = allLends.find(l => {
+        const lDate = new Date(l.date);
+        const sameDay = lDate.toDateString() === txDate.toDateString();
+        const sameAmount = Math.abs((l.amount || 0) - (transaction.amount || 0)) < 0.0001;
+        const samePerson = (l.personName || '').trim() && (transaction.personName || '').trim() && (l.personName || '').trim() === (transaction.personName || '').trim();
+        return sameDay && sameAmount && samePerson;
+      });
+
+      if (found) {
+        await TransactionService.updateLendTransactionFromCloud(found.id, transaction as any, cloudUpdatedAt || transaction.updatedAt);
+        if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, found.id, 'LEND');
+        return false;
+      }
+
+      const created = await TransactionService.createLendTransactionFromCloud(transaction as any);
+      if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, created.id, 'LEND');
       return true;
     }
 
     if (transactionType === 'EXPENSE') {
       const existingById = await TransactionService.getExpenseTransaction(transaction.id);
       if (existingById) return false;
-      await TransactionService.createExpenseTransactionFromCloud(transaction as any);
+
+      // Heuristic: match on amount + date + category/notes
+      const allExpenses = await TransactionService.getAllExpenseTransactions();
+      const txDate = new Date(transaction.date);
+      const found = allExpenses.find(e => {
+        const eDate = new Date(e.date);
+        const sameDay = eDate.toDateString() === txDate.toDateString();
+        const sameAmount = Math.abs((e.amount || 0) - (transaction.amount || 0)) < 0.0001;
+        const sameCategory = (e.category || '').trim() && (transaction.category || '').trim() && (e.category || '').trim() === (transaction.category || '').trim();
+        return sameDay && sameAmount && sameCategory;
+      });
+
+      if (found) {
+        await TransactionService.updateExpenseTransactionFromCloud(found.id, transaction as any, cloudUpdatedAt || transaction.updatedAt);
+        if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, found.id, 'EXPENSE');
+        return false;
+      }
+
+      const created = await TransactionService.createExpenseTransactionFromCloud(transaction as any);
+      if (remoteId && this.mappingRepo) await this.mappingRepo.createMapping(remoteId, created.id, 'EXPENSE');
       return true;
     }
 
