@@ -76,7 +76,9 @@ async function main() {
     console.log('Created LEND doc:', lendRef.id);
 
     const snapshot = await txCol.get();
-    console.log('Current transactions for user:', uid, snapshot.docs.map(d => d.id));
+    console.log('Current transactions for user:', uid, snapshot.docs.map(d => ({id: d.id, data: d.data()})));
+    // Optionally output counts
+    console.log('Total transaction docs:', snapshot.size);
   } catch (e) {
     console.error('Failed to create docs', e);
   }

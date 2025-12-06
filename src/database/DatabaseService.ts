@@ -121,6 +121,18 @@ export class DatabaseService {
       `).catch((e) => {
         console.log('remote_local_mappings table already exists or could not be created', e?.message || e);
       });
+      // Migration: Create sync logs table for troubleshooting
+      await this.database.executeSql(`
+        CREATE TABLE IF NOT EXISTS sync_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          level TEXT,
+          message TEXT,
+          meta TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `).catch((e) => {
+        console.log('sync_logs table already exists or could not be created', e?.message || e);
+      });
       
       console.log('Migrations completed successfully');
     } catch (error) {

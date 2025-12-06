@@ -19,6 +19,7 @@ class CloudBackupService {
   private readonly LAST_SYNC_KEY = 'last_sync_timestamp';
   private readonly PENDING_UPLOADS_KEY = 'pending_uploads';
   private readonly PENDING_META_KEY = 'pending_meta';
+  private readonly FAILED_UPLOADS_KEY = 'failed_uploads';
   // Backoff strategy params
   private readonly BASE_BACKOFF_MS = 60 * 1000; // 1 minute
   private readonly MAX_BACKOFF_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -269,7 +270,7 @@ class CloudBackupService {
         }
       }
       if (!normalized.find(e => e.transactionId === transactionId)) {
-        normalized.push({transactionId, retryCount: 0});
+        normalized.push({transactionId, retryCount: 0, errorCount: 0});
         await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(normalized));
       }
     } catch (error) {
@@ -357,33 +358,56 @@ class CloudBackupService {
 
           // Attempt upload
           await this.uploadSingleTransaction(tx, user.uid);
-        } catch (e) {
-          console.error('Error processing pending upload for', entry.transactionId, e);
-          // Increment retry and reschedule with exponential backoff
-          try {
-            const retries = (entry.retryCount || 0) + 1;
-            const backoff = Math.min(this.BASE_BACKOFF_MS * Math.pow(2, retries - 1), this.MAX_BACKOFF_MS);
-            entry.retryCount = retries;
-            entry.nextAttempt = Date.now() + backoff;
-            // Persist updated list
-            const rawAll = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
-            const all = rawAll ? JSON.parse(rawAll) : [];
-            // replace or append
-            let replaced = false;
-            for (let i = 0; i < all.length; i++) {
-              const it = all[i];
-              if ((typeof it === 'string' && it === entry.transactionId) || (it && it.transactionId === entry.transactionId)) {
-                all[i] = entry;
-                replaced = true;
-                break;
-              }
+          } catch (e) {
+            console.error('Error processing pending upload for', entry.transactionId, e);
+            // Log error to sync logs
+            try {
+              const {default: SyncLogger} = await import('./SyncLogger');
+              await SyncLogger.logError('Pending upload failed', {id: entry.transactionId, error: String(e)});
+            } catch (le) {
+              console.warn('Failed to write sync log', le);
             }
-            if (!replaced) all.push(entry);
-            await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(all));
-          } catch (ee) {
-            console.error('Failed to reschedule pending upload', ee);
-          }
-          // continue with next id
+            // Increment retry and error counters and reschedule with exponential backoff
+            try {
+              const retries = (entry.retryCount || 0) + 1;
+              const errorCnt = (entry.errorCount || 0) + 1;
+              const backoff = Math.min(this.BASE_BACKOFF_MS * Math.pow(2, retries - 1), this.MAX_BACKOFF_MS);
+              entry.retryCount = retries;
+              entry.errorCount = errorCnt;
+              entry.lastError = String(e);
+              entry.nextAttempt = Date.now() + backoff;
+
+              // If too many errors, move to failed uploads list and remove from pending
+              if (errorCnt >= 5) {
+                // Add to failed uploads
+                const rawFailed = await AsyncStorage.getItem(this.FAILED_UPLOADS_KEY);
+                const failed = rawFailed ? JSON.parse(rawFailed) : [];
+                if (!failed.find((f: any) => f.transactionId === entry.transactionId)) {
+                  failed.push({...entry, failedAt: Date.now()});
+                  await AsyncStorage.setItem(this.FAILED_UPLOADS_KEY, JSON.stringify(failed));
+                }
+                await this.dequeuePendingUpload(entry.transactionId);
+              } else {
+                // Persist updated pending entry
+                const rawAll = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
+                const all = rawAll ? JSON.parse(rawAll) : [];
+                // replace or append
+                let replaced = false;
+                for (let i = 0; i < all.length; i++) {
+                  const it = all[i];
+                  if ((typeof it === 'string' && it === entry.transactionId) || (it && it.transactionId === entry.transactionId)) {
+                    all[i] = entry;
+                    replaced = true;
+                    break;
+                  }
+                }
+                if (!replaced) all.push(entry);
+                await AsyncStorage.setItem(this.PENDING_UPLOADS_KEY, JSON.stringify(all));
+              }
+            } catch (ee) {
+              console.error('Failed to reschedule or mark failed upload', ee);
+            }
+            // continue with next id
         }
       }
       // Process pending meta if any
@@ -404,8 +428,36 @@ class CloudBackupService {
       } catch (e) {
         console.error('Failed processing pending meta', e);
       }
+      // Optionally rotate old failed uploads into logs (cleanup retained separately)
     } catch (error) {
       console.error('Failed to process pending uploads:', error);
+    }
+  }
+
+  /**
+   * Get failed uploads list
+   */
+  public async getFailedUploads(): Promise<any[]> {
+    try {
+      const raw = await AsyncStorage.getItem(this.FAILED_UPLOADS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      console.error('Failed to read failed uploads', e);
+      return [];
+    }
+  }
+
+  /**
+   * Clears a failed upload (remove from failed list)
+   */
+  public async clearFailedUpload(transactionId: string): Promise<void> {
+    try {
+      const raw = await AsyncStorage.getItem(this.FAILED_UPLOADS_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      const filtered = list.filter((it: any) => it.transactionId !== transactionId);
+      await AsyncStorage.setItem(this.FAILED_UPLOADS_KEY, JSON.stringify(filtered));
+    } catch (e) {
+      console.error('Failed to clear failed upload', e);
     }
   }
 
