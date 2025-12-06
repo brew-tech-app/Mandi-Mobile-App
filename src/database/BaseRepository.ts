@@ -75,4 +75,23 @@ export abstract class BaseRepository<T> implements IRepository<T> {
       throw error;
     }
   }
+
+  /**
+   * Insert a row with provided columns and params, preserving provided id/timestamps
+   */
+  protected async insertRowWithId(columns: string[], params: any[]): Promise<void> {
+    const placeholders = columns.map(() => '?').join(', ');
+    const query = `INSERT INTO ${this.tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+    await this.executeQuery(query, params);
+  }
+
+  /**
+   * Update a row using provided update fields and params, and set a provided updated_at value
+   */
+  protected async updateRowWithTimestamp(updateFields: string[], params: any[], id: string, updatedAt: string): Promise<void> {
+    // Append updated_at and id
+    const query = `UPDATE ${this.tableName} SET ${updateFields.join(', ')}, updated_at = ? WHERE id = ?`;
+    const finalParams = [...params, updatedAt, id];
+    await this.executeQuery(query, finalParams);
+  }
 }

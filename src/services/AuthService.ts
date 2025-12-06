@@ -241,6 +241,149 @@ class AuthService {
   }
 
   /**
+   * Send OTP to phone number
+   */
+  async sendOTP(phoneNumber: string): Promise<{verificationId: string}> {
+    try {
+      console.log('Sending OTP to:', phoneNumber);
+      const confirmation = await auth().signInWithPhoneNumber(phoneNumber);
+      console.log('OTP sent successfully, verification ID:', confirmation.verificationId);
+      return {verificationId: confirmation.verificationId || ''};
+    } catch (error: any) {
+      console.error('Error sending OTP:', error);
+      throw new Error(this.getErrorMessage(error.code));
+    }
+  }
+
+  /**
+   * Verify OTP and sign in/sign up with phone number
+   */
+  async verifyOTP(verificationId: string, otp: string): Promise<{isNewUser: boolean; user: User}> {
+    try {
+      console.log('Verifying OTP...');
+      const credential = auth.PhoneAuthProvider.credential(verificationId, otp);
+      const userCredential = await auth().signInWithCredential(credential);
+      
+      const isNewUser = userCredential.additionalUserInfo?.isNewUser || false;
+      const firebaseUser = userCredential.user;
+
+      let user: User = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || '',
+        displayName: firebaseUser.displayName || undefined,
+        phoneNumber: firebaseUser.phoneNumber || undefined,
+        createdAt: new Date().toISOString(),
+      };
+
+      // If existing user, try to fetch profile from Firestore
+      if (!isNewUser) {
+        try {
+          const userDoc = await firestore()
+            .collection('users')
+            .doc(firebaseUser.uid)
+            .get();
+          
+          const exists = typeof userDoc.exists === 'function' ? userDoc.exists() : !!userDoc.exists;
+          if (exists) {
+            const userData = userDoc.data();
+            user = {
+              ...user,
+              displayName: userData?.displayName || user.displayName,
+              firmName: userData?.firmName,
+              gstin: userData?.gstin,
+              phoneNumber: userData?.phoneNumber || user.phoneNumber,
+            };
+          }
+        } catch (error) {
+          console.warn('Failed to fetch user profile from Firestore:', error);
+        }
+      }
+
+      await this.saveUserLocally(user);
+      this.currentUser = user;
+      
+      console.log('OTP verification successful. Is new user:', isNewUser);
+      return {isNewUser, user};
+    } catch (error: any) {
+      console.error('Error verifying OTP:', error);
+      if (error.code === 'auth/invalid-verification-code') {
+        throw new Error('Invalid OTP. Please try again.');
+      }
+      if (error.code === 'auth/code-expired') {
+        throw new Error('OTP has expired. Please request a new one.');
+      }
+      throw new Error(this.getErrorMessage(error.code));
+    }
+  }
+
+  /**
+   * Update phone user profile (for new users after OTP verification)
+   */
+  async updatePhoneUserProfile(updates: {
+    displayName?: string;
+    firmName?: string;
+    gstin?: string;
+    phoneNumber?: string;
+  }): Promise<User> {
+    const currentUser = await this.getCurrentUser();
+    if (!currentUser) {
+      throw new Error('No user logged in');
+    }
+
+    const firebaseUser = auth().currentUser;
+    if (!firebaseUser) {
+      throw new Error('No authenticated user');
+    }
+
+    // Update Firebase profile
+    if (updates.displayName) {
+      await firebaseUser.updateProfile({displayName: updates.displayName});
+    }
+
+    // Update Firestore
+    try {
+      await firestore()
+        .collection('users')
+        .doc(firebaseUser.uid)
+        .set({
+          email: currentUser.email || '',
+          displayName: updates.displayName || currentUser.displayName,
+          firmName: updates.firmName || null,
+          gstin: updates.gstin || null,
+          phoneNumber: updates.phoneNumber || currentUser.phoneNumber,
+          createdAt: currentUser.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, {merge: true});
+
+      // Store GSTIN if provided
+      if (updates.gstin) {
+        await firestore()
+          .collection('gstins')
+          .doc(updates.gstin)
+          .set({
+            uid: firebaseUser.uid,
+            email: currentUser.email,
+            firmName: updates.firmName,
+            createdAt: new Date().toISOString(),
+          });
+      }
+    } catch (error) {
+      console.warn('Failed to update user profile in Firestore:', error);
+      // Continue even if Firestore update fails
+    }
+
+    const updatedUser = {
+      ...currentUser,
+      ...updates,
+    };
+
+    await this.saveUserLocally(updatedUser);
+    this.currentUser = updatedUser;
+
+    return updatedUser;
+  }
+
+  /**
    * Get user-friendly error message
    */
   private getErrorMessage(code: string): string {
@@ -259,6 +402,14 @@ class AuthService {
         return 'Too many attempts. Please try again later';
       case 'auth/network-request-failed':
         return 'Network error. Please check your connection';
+      case 'auth/invalid-phone-number':
+        return 'Invalid phone number format';
+      case 'auth/invalid-verification-code':
+        return 'Invalid verification code';
+      case 'auth/missing-phone-number':
+        return 'Phone number is required';
+      case 'auth/quota-exceeded':
+        return 'SMS quota exceeded. Please try again later';
       default:
         return 'Authentication failed. Please try again';
     }

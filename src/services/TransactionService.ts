@@ -44,6 +44,26 @@ export interface ITransactionService {
  * Following Single Responsibility and Dependency Inversion Principles
  */
 export class TransactionService implements ITransactionService {
+
+    /**
+     * Search Sell transactions by phone number
+     */
+    public async searchSellTransactionsByPhone(phone: string) {
+      await this.initializeDatabase();
+      return this.sellRepository.findAll().then(list =>
+        list.filter(t => t.buyerPhone && t.buyerPhone.includes(phone))
+      );
+    }
+
+    /**
+     * Search Lend transactions by phone number
+     */
+    public async searchLendTransactionsByPhone(phone: string) {
+      await this.initializeDatabase();
+      return this.lendRepository.findAll().then(list =>
+        list.filter(t => t.personPhone && t.personPhone.includes(phone))
+      );
+    }
   private buyRepository!: BuyTransactionRepository;
   private sellRepository!: SellTransactionRepository;
   private lendRepository!: LendTransactionRepository;
@@ -56,6 +76,39 @@ export class TransactionService implements ITransactionService {
     this.dbService = DatabaseService;
   }
 
+  /**
+   * Generate invoice number in the format YYYYMMDD + typeLetter + 4-digit sequence
+   * Examples: 20251231B0001, 20251231S0001, 20251231L0001
+   */
+  private async generateInvoiceNumber(transactionType: 'BUY' | 'SELL' | 'LEND'): Promise<string> {
+    await this.initializeDatabase();
+    const now = new Date();
+    const y = now.getFullYear().toString();
+    const m = (now.getMonth() + 1).toString().padStart(2, '0');
+    const d = now.getDate().toString().padStart(2, '0');
+    const datePrefix = `${y}${m}${d}`;
+    const typeLetter = transactionType === 'BUY' ? 'B' : transactionType === 'SELL' ? 'S' : 'L';
+    const prefix = `${datePrefix}${typeLetter}`;
+
+    let lastInvoice: string | null = null;
+    if (transactionType === 'BUY') {
+      lastInvoice = await this.buyRepository.getLastInvoiceNumber(prefix);
+    } else if (transactionType === 'SELL') {
+      lastInvoice = await this.sellRepository.getLastInvoiceNumber(prefix);
+    } else if (transactionType === 'LEND') {
+      lastInvoice = await this.lendRepository.getLastInvoiceNumber(prefix);
+    }
+
+    let lastSeq = 0;
+    if (lastInvoice) {
+      const seqStr = lastInvoice.slice(-4);
+      const parsed = parseInt(seqStr, 10);
+      if (!isNaN(parsed)) lastSeq = parsed;
+    }
+
+    const nextSeq = (lastSeq + 1).toString().padStart(4, '0');
+    return `${prefix}${nextSeq}`;
+  }
   /**
    * Initialize database and repositories
    */
@@ -126,10 +179,23 @@ export class TransactionService implements ITransactionService {
   public async createBuyTransaction(
     data: Omit<BuyTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<BuyTransaction> {
+    await this.initializeDatabase();
+    // Auto-generate invoice number if not provided
+    if (!data.invoiceNumber) {
+      data.invoiceNumber = await this.generateInvoiceNumber('BUY');
+    }
     const transaction = await this.buyRepository.create(data);
     // Auto-sync to cloud (non-blocking)
     this.autoSyncToCloud(transaction).catch(console.error);
     return transaction;
+  }
+
+  /**
+   * Create buy transaction from cloud data without triggering auto-sync
+   */
+  public async createBuyTransactionFromCloud(transaction: BuyTransaction): Promise<BuyTransaction> {
+    await this.initializeDatabase();
+    return await this.buyRepository.createWithId(transaction);
   }
 
   public async getBuyTransaction(id: string): Promise<BuyTransaction | null> {
@@ -161,6 +227,18 @@ export class TransactionService implements ITransactionService {
     return transaction;
   }
 
+  /**
+   * Update buy transaction with cloud-provided updatedAt without triggering auto-sync
+   */
+  public async updateBuyTransactionFromCloud(
+    id: string,
+    data: Partial<BuyTransaction>,
+    updatedAt: string,
+  ): Promise<BuyTransaction> {
+    await this.initializeDatabase();
+    return await this.buyRepository.updateWithTimestamp(id, data, updatedAt);
+  }
+
   public async deleteBuyTransaction(id: string): Promise<boolean> {
     const result = await this.buyRepository.delete(id);
     if (result) {
@@ -183,15 +261,36 @@ export class TransactionService implements ITransactionService {
   }
 
   /**
+   * Find a buy transaction by invoice number (for deduplication during restore)
+   */
+  public async findBuyByInvoiceNumber(invoiceNumber: string): Promise<BuyTransaction | null> {
+    await this.initializeDatabase();
+    return await this.buyRepository.findByInvoiceNumber(invoiceNumber);
+  }
+
+  /**
    * Sell Transaction Operations
    */
   public async createSellTransaction(
     data: Omit<SellTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<SellTransaction> {
+    await this.initializeDatabase();
+    // Auto-generate invoice number if not provided
+    if (!data.invoiceNumber) {
+      data.invoiceNumber = await this.generateInvoiceNumber('SELL');
+    }
     const transaction = await this.sellRepository.create(data);
     // Auto-sync to cloud (non-blocking)
     this.autoSyncToCloud(transaction).catch(console.error);
     return transaction;
+  }
+
+  /**
+   * Create sell transaction from cloud data without triggering auto-sync
+   */
+  public async createSellTransactionFromCloud(transaction: SellTransaction): Promise<SellTransaction> {
+    await this.initializeDatabase();
+    return await this.sellRepository.createWithId(transaction);
   }
 
   public async getSellTransaction(id: string): Promise<SellTransaction | null> {
@@ -212,6 +311,18 @@ export class TransactionService implements ITransactionService {
     return transaction;
   }
 
+  /**
+   * Update sell transaction with cloud-provided updatedAt without triggering auto-sync
+   */
+  public async updateSellTransactionFromCloud(
+    id: string,
+    data: Partial<SellTransaction>,
+    updatedAt: string,
+  ): Promise<SellTransaction> {
+    await this.initializeDatabase();
+    return await this.sellRepository.updateWithTimestamp(id, data, updatedAt);
+  }
+
   public async deleteSellTransaction(id: string): Promise<boolean> {
     const result = await this.sellRepository.delete(id);
     if (result) {
@@ -227,6 +338,14 @@ export class TransactionService implements ITransactionService {
 
   public async getSellTransactionsByBuyer(buyerName: string): Promise<SellTransaction[]> {
     return await this.sellRepository.findByBuyer(buyerName);
+  }
+
+  /**
+   * Find a sell transaction by invoice number (for deduplication during restore)
+   */
+  public async findSellByInvoiceNumber(invoiceNumber: string): Promise<SellTransaction | null> {
+    await this.initializeDatabase();
+    return await this.sellRepository.findByInvoiceNumber(invoiceNumber);
   }
 
   public async getSellTransactionById(id: string): Promise<SellTransaction | null> {
@@ -253,10 +372,23 @@ export class TransactionService implements ITransactionService {
   public async createLendTransaction(
     data: Omit<LendTransaction, 'id' | 'createdAt' | 'updatedAt' | 'transactionType'>,
   ): Promise<LendTransaction> {
+    await this.initializeDatabase();
+    // Auto-generate invoice number if not provided
+    if (!data.invoiceNumber) {
+      data.invoiceNumber = await this.generateInvoiceNumber('LEND');
+    }
     const transaction = await this.lendRepository.create(data);
     // Auto-sync to cloud (non-blocking)
     this.autoSyncToCloud(transaction).catch(console.error);
     return transaction;
+  }
+
+  /**
+   * Create lend transaction from cloud data without triggering auto-sync
+   */
+  public async createLendTransactionFromCloud(transaction: LendTransaction): Promise<LendTransaction> {
+    await this.initializeDatabase();
+    return await this.lendRepository.createWithId(transaction);
   }
 
   public async getLendTransaction(id: string): Promise<LendTransaction | null> {
@@ -275,6 +407,18 @@ export class TransactionService implements ITransactionService {
     // Auto-sync to cloud (non-blocking)
     this.autoSyncToCloud(transaction).catch(console.error);
     return transaction;
+  }
+
+  /**
+   * Update lend transaction with cloud-provided updatedAt without triggering auto-sync
+   */
+  public async updateLendTransactionFromCloud(
+    id: string,
+    data: Partial<LendTransaction>,
+    updatedAt: string,
+  ): Promise<LendTransaction> {
+    await this.initializeDatabase();
+    return await this.lendRepository.updateWithTimestamp(id, data, updatedAt);
   }
 
   public async deleteLendTransaction(id: string): Promise<boolean> {
@@ -306,6 +450,14 @@ export class TransactionService implements ITransactionService {
     return transaction;
   }
 
+  /**
+   * Create expense transaction from cloud data without triggering auto-sync
+   */
+  public async createExpenseTransactionFromCloud(transaction: ExpenseTransaction): Promise<ExpenseTransaction> {
+    await this.initializeDatabase();
+    return await this.expenseRepository.createWithId(transaction);
+  }
+
   public async getExpenseTransaction(id: string): Promise<ExpenseTransaction | null> {
     return await this.expenseRepository.findById(id);
   }
@@ -322,6 +474,18 @@ export class TransactionService implements ITransactionService {
     // Auto-sync to cloud (non-blocking)
     this.autoSyncToCloud(transaction).catch(console.error);
     return transaction;
+  }
+
+  /**
+   * Update expense transaction with cloud-provided updatedAt without triggering auto-sync
+   */
+  public async updateExpenseTransactionFromCloud(
+    id: string,
+    data: Partial<ExpenseTransaction>,
+    updatedAt: string,
+  ): Promise<ExpenseTransaction> {
+    await this.initializeDatabase();
+    return await this.expenseRepository.updateWithTimestamp(id, data, updatedAt);
   }
 
   public async deleteExpenseTransaction(id: string): Promise<boolean> {
@@ -668,6 +832,12 @@ export class TransactionService implements ITransactionService {
       paymentStatus: newPaymentStatus,
     });
 
+    // Sync updated transaction to cloud
+    const updatedTransaction = await this.buyRepository.findById(transactionId);
+    if (updatedTransaction) {
+      this.autoSyncToCloud(updatedTransaction as any).catch(console.error);
+    }
+
     // Deduct from cash balance
     const currentBalance = await CashBalanceService.getCurrentBalance();
     await CashBalanceService.setBalance(currentBalance - amount);
@@ -737,6 +907,12 @@ export class TransactionService implements ITransactionService {
       paymentStatus: newPaymentStatus,
     });
 
+    // Sync updated transaction to cloud
+    const updatedSell = await this.sellRepository.findById(transactionId);
+    if (updatedSell) {
+      this.autoSyncToCloud(updatedSell as any).catch(console.error);
+    }
+
     // Add to cash balance (receiving payment)
     const currentBalance = await CashBalanceService.getCurrentBalance();
     await CashBalanceService.setBalance(currentBalance + amount);
@@ -777,6 +953,11 @@ export class TransactionService implements ITransactionService {
       // Add back to cash balance
       const currentBalance = await CashBalanceService.getCurrentBalance();
       await CashBalanceService.setBalance(currentBalance + payment.amount);
+      // Sync updated transaction to cloud
+      const updatedBuy = await this.buyRepository.findById(payment.transactionId);
+      if (updatedBuy) {
+        this.autoSyncToCloud(updatedBuy as any).catch(console.error);
+      }
     } else if (payment.transactionType === 'SELL') {
       // Get the sell transaction
       const transaction = await this.sellRepository.findById(payment.transactionId);
@@ -801,6 +982,11 @@ export class TransactionService implements ITransactionService {
       // Deduct from cash balance (reversing received payment)
       const currentBalance = await CashBalanceService.getCurrentBalance();
       await CashBalanceService.setBalance(currentBalance - payment.amount);
+      // Sync updated transaction to cloud
+      const updatedSellTx = await this.sellRepository.findById(payment.transactionId);
+      if (updatedSellTx) {
+        this.autoSyncToCloud(updatedSellTx as any).catch(console.error);
+      }
     }
 
     // Delete the payment record

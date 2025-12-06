@@ -29,6 +29,13 @@ export class CashBalanceService {
       await AsyncStorage.setItem(this.CASH_BALANCE_KEY, amount.toString());
       await AsyncStorage.setItem(this.LAST_BALANCE_UPDATE_KEY, new Date().toISOString());
       console.log(`Cash balance updated to: ₹${amount}`);
+      // Push user meta to cloud (fire-and-forget) - lazy import to avoid circular dependency
+      try {
+        const {default: CloudBackupService} = await import('./CloudBackupService');
+        CloudBackupService.pushUserMeta().catch(console.error);
+      } catch (err) {
+        console.warn('CloudBackupService not available to push meta immediately', err);
+      }
       return true;
     } catch (error) {
       console.error('Error setting cash balance:', error);

@@ -125,6 +125,13 @@ export const LoginScreen: React.FC<any> = ({navigation}) => {
           />
 
           <CustomButton
+            title="Login with Phone Number"
+            onPress={() => navigation.navigate('PhoneAuth')}
+            variant="outline"
+            style={styles.phoneButton}
+          />
+
+          <CustomButton
             title="Forgot Password?"
             onPress={handleForgotPassword}
             variant="outline"
@@ -178,6 +185,9 @@ const styles = StyleSheet.create({
     ...Typography.h3,
     marginBottom: Spacing.lg,
     textAlign: 'center',
+  },
+  phoneButton: {
+    marginTop: Spacing.md,
   },
   forgotButton: {
     marginTop: Spacing.sm,

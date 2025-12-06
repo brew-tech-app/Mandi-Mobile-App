@@ -62,6 +62,75 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
   }
 
   /**
+   * Create a buy transaction preserving id and timestamps (used when restoring from cloud)
+   */
+  public async createWithId(entity: BuyTransaction): Promise<BuyTransaction> {
+    const columns = [
+      'id',
+      'supplier_name',
+      'supplier_phone',
+      'grain_type',
+      'quantity',
+      'rate_per_quintal',
+      'total_amount',
+      'paid_amount',
+      'balance_amount',
+      'payment_status',
+      'vehicle_number',
+      'invoice_number',
+      'commission_amount',
+      'labour_charges',
+      'labour_charges_settled',
+      'date',
+      'description',
+      'created_at',
+      'updated_at',
+    ];
+
+    const params = [
+      entity.id,
+      entity.supplierName,
+      entity.supplierPhone || null,
+      entity.grainType,
+      entity.quantity,
+      entity.ratePerQuintal,
+      entity.totalAmount,
+      entity.paidAmount || 0,
+      entity.balanceAmount,
+      entity.paymentStatus,
+      entity.vehicleNumber || null,
+      entity.invoiceNumber || null,
+      entity.commissionAmount || 0,
+      entity.labourCharges || 0,
+      entity.labourChargesSettled ? 1 : 0,
+      entity.date,
+      entity.description || null,
+      entity.createdAt,
+      entity.updatedAt,
+    ];
+
+    try {
+      await this.insertRowWithId(columns, params);
+      const created = await this.findById(entity.id);
+      if (!created) {
+        throw new Error('Failed to create buy transaction with provided id');
+      }
+      return created;
+    } catch (err: any) {
+      // If insertion failed due to UNIQUE constraint on invoice_number, try to merge
+      const msg = (err && err.message) ? err.message.toLowerCase() : '';
+      if (entity.invoiceNumber && (msg.includes('unique') || msg.includes('constraint') || msg.includes('invoice_number'))) {
+        const existing = await this.findByInvoiceNumber(entity.invoiceNumber);
+        if (existing) {
+          // Apply cloud-provided timestamped update to existing row
+          return await this.updateWithTimestamp(existing.id, entity as any, entity.updatedAt);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Find buy transaction by ID
    */
   public async findById(id: string): Promise<BuyTransaction | null> {
@@ -177,6 +246,88 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
   }
 
   /**
+   * Update buy transaction but preserve provided updatedAt timestamp
+   * Used when applying cloud updates
+   */
+  public async updateWithTimestamp(id: string, entity: Partial<BuyTransaction>, updatedAt: string): Promise<BuyTransaction> {
+    const updateFields: string[] = [];
+    const params: any[] = [];
+
+    if (entity.supplierName !== undefined) {
+      updateFields.push('supplier_name = ?');
+      params.push(entity.supplierName);
+    }
+    if (entity.supplierPhone !== undefined) {
+      updateFields.push('supplier_phone = ?');
+      params.push(entity.supplierPhone);
+    }
+    if (entity.grainType !== undefined) {
+      updateFields.push('grain_type = ?');
+      params.push(entity.grainType);
+    }
+    if (entity.quantity !== undefined) {
+      updateFields.push('quantity = ?');
+      params.push(entity.quantity);
+    }
+    if (entity.ratePerQuintal !== undefined) {
+      updateFields.push('rate_per_quintal = ?');
+      params.push(entity.ratePerQuintal);
+    }
+    if (entity.totalAmount !== undefined) {
+      updateFields.push('total_amount = ?');
+      params.push(entity.totalAmount);
+    }
+    if (entity.paidAmount !== undefined) {
+      updateFields.push('paid_amount = ?');
+      params.push(entity.paidAmount);
+    }
+    if (entity.balanceAmount !== undefined) {
+      updateFields.push('balance_amount = ?');
+      params.push(entity.balanceAmount);
+    }
+    if (entity.paymentStatus !== undefined) {
+      updateFields.push('payment_status = ?');
+      params.push(entity.paymentStatus);
+    }
+    if (entity.vehicleNumber !== undefined) {
+      updateFields.push('vehicle_number = ?');
+      params.push(entity.vehicleNumber);
+    }
+    if (entity.invoiceNumber !== undefined) {
+      updateFields.push('invoice_number = ?');
+      params.push(entity.invoiceNumber);
+    }
+    if (entity.commissionAmount !== undefined) {
+      updateFields.push('commission_amount = ?');
+      params.push(entity.commissionAmount);
+    }
+    if (entity.labourCharges !== undefined) {
+      updateFields.push('labour_charges = ?');
+      params.push(entity.labourCharges);
+    }
+    if (entity.labourChargesSettled !== undefined) {
+      updateFields.push('labour_charges_settled = ?');
+      params.push(entity.labourChargesSettled ? 1 : 0);
+    }
+    if (entity.date !== undefined) {
+      updateFields.push('date = ?');
+      params.push(entity.date);
+    }
+    if (entity.description !== undefined) {
+      updateFields.push('description = ?');
+      params.push(entity.description);
+    }
+
+    await this.updateRowWithTimestamp(updateFields, params, id, updatedAt);
+
+    const updated = await this.findById(id);
+    if (!updated) {
+      throw new Error('Failed to update buy transaction');
+    }
+    return updated;
+  }
+
+  /**
    * Delete buy transaction
    */
   public async delete(id: string): Promise<boolean> {
@@ -197,6 +348,27 @@ export class BuyTransactionRepository extends BaseRepository<BuyTransaction> {
       transactions.push(this.mapRowToEntity(result[0].rows.item(i)));
     }
     return transactions;
+  }
+
+  /**
+   * Find a buy transaction by invoice number
+   */
+  public async findByInvoiceNumber(invoiceNumber: string): Promise<BuyTransaction | null> {
+    const query = `SELECT * FROM ${this.tableName} WHERE invoice_number = ? LIMIT 1`;
+    const result = await this.executeQuery(query, [invoiceNumber]);
+    if (result[0].rows.length === 0) return null;
+    return this.mapRowToEntity(result[0].rows.item(0));
+  }
+
+  /**
+   * Get the last invoice number matching the given prefix (e.g. YYYYMMDDB)
+   * Returns the invoice_number string or null if none found
+   */
+  public async getLastInvoiceNumber(prefix: string): Promise<string | null> {
+    const query = `SELECT invoice_number FROM ${this.tableName} WHERE invoice_number LIKE ? ORDER BY invoice_number DESC LIMIT 1`;
+    const result = await this.executeQuery(query, [`${prefix}%`]);
+    if (result[0].rows.length === 0) return null;
+    return result[0].rows.item(0).invoice_number;
   }
 
   /**

@@ -20,6 +20,8 @@ import {AddExpenseTransactionScreen} from '../screens/AddExpenseTransactionScree
 import {ExpenseTransactionsListScreen} from '../screens/ExpenseTransactionsListScreen';
 import {LoginScreen} from '../screens/LoginScreen';
 import {SignUpScreen} from '../screens/SignUpScreen';
+import {PhoneAuthScreen} from '../screens/PhoneAuthScreen';
+import {SearchResultsScreen} from '../screens/SearchResultsScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
 import {Colors} from '../constants/theme';
 import AuthService from '../services/AuthService';
@@ -289,9 +291,19 @@ export const AppNavigator = () => {
               options={{headerShown: false}}
             />
             <Stack.Screen
+              name="PhoneAuth"
+              component={PhoneAuthScreen}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
               name="SignUp"
               component={SignUpScreen}
               options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="SearchResults"
+              component={require('../screens/SearchResultsScreen').SearchResultsScreen}
+              options={{title: 'Search Results'}}
             />
           </>
         ) : (
@@ -301,6 +313,26 @@ export const AppNavigator = () => {
               name="Main"
               component={BottomTabNavigator}
               options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="BuyTransactionReceiptModal"
+              component={require('../screens/BuyTransactionReceiptScreen').BuyTransactionReceiptScreen}
+              options={{title: 'Buy Receipt'}}
+            />
+            <Stack.Screen
+              name="SellTransactionReceiptModal"
+              component={require('../screens/SellTransactionReceiptScreen').SellTransactionReceiptScreen}
+              options={{title: 'Sell Receipt'}}
+            />
+            <Stack.Screen
+              name="LendTransactionReceiptModal"
+              component={require('../screens/LendTransactionReceiptScreen').LendTransactionReceiptScreen}
+              options={{title: 'Lend Receipt'}}
+            />
+            <Stack.Screen
+              name="SearchResults"
+              component={SearchResultsScreen}
+              options={{title: 'Search Results'}}
             />
             {/* Modal Screens for FAB */}
             <Stack.Screen

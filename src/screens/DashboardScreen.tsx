@@ -251,9 +251,8 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               keyboardType="phone-pad"
               onSubmitEditing={() => {
                 if (searchQuery.trim()) {
-                  navigation.navigate('BuyTransactions', {
-                    screen: 'BuyTransactionsList',
-                    params: { searchPhone: searchQuery.trim() }
+                  navigation.navigate('SearchResults', {
+                    phoneNumber: searchQuery.trim()
                   });
                   setSearchQuery('');
                 }

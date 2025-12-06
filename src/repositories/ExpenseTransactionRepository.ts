@@ -48,6 +48,46 @@ export class ExpenseTransactionRepository extends BaseRepository<ExpenseTransact
     return created;
   }
 
+  /**
+   * Create an expense transaction preserving id and timestamps (used when restoring from cloud)
+   */
+  public async createWithId(entity: ExpenseTransaction): Promise<ExpenseTransaction> {
+    const columns = [
+      'id',
+      'expense_category',
+      'expense_name',
+      'amount',
+      'paid_to',
+      'payment_mode',
+      'receipt_number',
+      'date',
+      'description',
+      'created_at',
+      'updated_at',
+    ];
+
+    const params = [
+      entity.id,
+      entity.expenseCategory,
+      entity.expenseName,
+      entity.amount,
+      entity.paidTo || null,
+      entity.paymentMode,
+      entity.receiptNumber || null,
+      entity.date,
+      entity.description || null,
+      entity.createdAt,
+      entity.updatedAt,
+    ];
+
+    await this.insertRowWithId(columns, params);
+    const created = await this.findById(entity.id);
+    if (!created) {
+      throw new Error('Failed to create expense transaction with provided id');
+    }
+    return created;
+  }
+
   public async findById(id: string): Promise<ExpenseTransaction | null> {
     const query = `SELECT * FROM ${this.tableName} WHERE id = ?`;
     const result = await this.executeQuery(query, [id]);
@@ -110,6 +150,61 @@ export class ExpenseTransactionRepository extends BaseRepository<ExpenseTransact
 
     updateFields.push('updated_at = ?');
     params.push(timestamp);
+    params.push(id);
+
+    const query = `UPDATE ${this.tableName} SET ${updateFields.join(', ')} WHERE id = ?`;
+    await this.executeQuery(query, params);
+
+    const updated = await this.findById(id);
+    if (!updated) {
+      throw new Error('Failed to update expense transaction');
+    }
+    return updated;
+  }
+
+  /**
+   * Update expense transaction but preserve provided updatedAt timestamp
+   * Used when applying cloud updates
+   */
+  public async updateWithTimestamp(id: string, entity: Partial<ExpenseTransaction>, updatedAt: string): Promise<ExpenseTransaction> {
+    const updateFields: string[] = [];
+    const params: any[] = [];
+
+    if (entity.expenseCategory !== undefined) {
+      updateFields.push('expense_category = ?');
+      params.push(entity.expenseCategory);
+    }
+    if (entity.expenseName !== undefined) {
+      updateFields.push('expense_name = ?');
+      params.push(entity.expenseName);
+    }
+    if (entity.amount !== undefined) {
+      updateFields.push('amount = ?');
+      params.push(entity.amount);
+    }
+    if (entity.paidTo !== undefined) {
+      updateFields.push('paid_to = ?');
+      params.push(entity.paidTo);
+    }
+    if (entity.paymentMode !== undefined) {
+      updateFields.push('payment_mode = ?');
+      params.push(entity.paymentMode);
+    }
+    if (entity.receiptNumber !== undefined) {
+      updateFields.push('receipt_number = ?');
+      params.push(entity.receiptNumber);
+    }
+    if (entity.date !== undefined) {
+      updateFields.push('date = ?');
+      params.push(entity.date);
+    }
+    if (entity.description !== undefined) {
+      updateFields.push('description = ?');
+      params.push(entity.description);
+    }
+
+    updateFields.push('updated_at = ?');
+    params.push(updatedAt);
     params.push(id);
 
     const query = `UPDATE ${this.tableName} SET ${updateFields.join(', ')} WHERE id = ?`;

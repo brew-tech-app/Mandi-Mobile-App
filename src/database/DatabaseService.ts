@@ -97,6 +97,20 @@ export class DatabaseService {
         console.log('labour_charges_settled column already exists');
       });
       
+      // Migration: Ensure invoice_number uniqueness for buy_transactions and sell_transactions
+      // Use IF NOT EXISTS so this is safe to run multiple times
+      await this.database.executeSql(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_buy_invoice_number ON buy_transactions(invoice_number)
+      `).catch((e) => {
+        console.log('idx_buy_invoice_number already exists or could not be created', e?.message || e);
+      });
+
+      await this.database.executeSql(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sell_invoice_number ON sell_transactions(invoice_number)
+      `).catch((e) => {
+        console.log('idx_sell_invoice_number already exists or could not be created', e?.message || e);
+      });
+      
       console.log('Migrations completed successfully');
     } catch (error) {
       console.error('Error running migrations:', error);
