@@ -1,1 +1,0 @@
-/Users/vishvendrasingh/projects/Mandi-Mobile-App/android/app/build/intermediates/cxx/RelWithDebInfo/s4o462s4/obj/arm64-v8a

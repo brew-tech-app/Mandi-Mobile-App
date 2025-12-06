@@ -207,3 +207,6 @@ android/build/
 android/.gradle/
 *.jks
 *.keystore
+
+# Ignore CMake debug/generated files
+android/app/.cxx/
