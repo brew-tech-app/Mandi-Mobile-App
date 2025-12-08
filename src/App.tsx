@@ -2,8 +2,8 @@ import React, {useEffect, useState} from 'react';
 import {SafeAreaView, StyleSheet, StatusBar, ActivityIndicator, View, Text} from 'react-native';
 import {AppNavigator} from './navigation/AppNavigator';
 import TransactionService from './services/TransactionService';
+import CloudBackupService from './services/CloudBackupService';
 import {Colors} from './constants/theme';
-import SyncIndicator from './components/SyncIndicator';
 
 /**
  * Main App Component
@@ -14,19 +14,50 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    initializeApp();
-  }, []);
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
-  const initializeApp = async () => {
-    try {
-      // Initialize database
-      await TransactionService.initializeDatabase();
-      setIsInitialized(true);
-    } catch (err) {
-      console.error('Error initializing app:', err);
-      setError('Failed to initialize database. Please restart the app.');
-    }
-  };
+    const init = async () => {
+      try {
+        // Initialize database
+        await TransactionService.initializeDatabase();
+
+        // Process any pending uploads (will no-op if offline)
+        try {
+          await CloudBackupService.processPendingUploads();
+        } catch (e) {
+          console.warn('Failed to process pending uploads at startup', e);
+        }
+
+        // Run a full sync if the service determines it's needed
+        try {
+          const needs = await CloudBackupService.needsSync();
+          if (needs) {
+            // Run sync in background (don't block UI init)
+            CloudBackupService.syncData().catch(err => console.warn('Auto-sync failed', err));
+          }
+        } catch (e) {
+          console.warn('Failed to evaluate/trigger initial sync', e);
+        }
+
+        // Schedule periodic sync every 15 minutes
+        intervalId = setInterval(() => {
+          CloudBackupService.processPendingUploads().catch(console.error);
+          CloudBackupService.syncData().catch(console.error);
+        }, 15 * 60 * 1000);
+
+        setIsInitialized(true);
+      } catch (err) {
+        console.error('Error initializing app:', err);
+        setError('Failed to initialize database. Please restart the app.');
+      }
+    };
+
+    init();
+
+    return () => {
+      if (intervalId) clearInterval(intervalId as unknown as number);
+    };
+  }, []);
 
   if (error) {
     return (
@@ -52,7 +83,6 @@ const App: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
-      <SyncIndicator />
       <AppNavigator />
     </SafeAreaView>
   );

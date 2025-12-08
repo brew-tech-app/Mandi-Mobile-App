@@ -7,10 +7,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
+  Alert,
 } from 'react-native';
 import {Calendar} from 'react-native-calendars';
 import {useFocusEffect} from '@react-navigation/native';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {LendTransaction, PaymentStatus} from '../models/Transaction';
 import TransactionService from '../services/TransactionService';
 
@@ -24,6 +26,9 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [activeTab, setActiveTab] = useState<'CUSTOMER' | 'SELF'>('CUSTOMER');
+  const [customerCount, setCustomerCount] = useState<number>(0);
+  const [selfCount, setSelfCount] = useState<number>(0);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -34,6 +39,23 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
   useEffect(() => {
     filterTransactions();
   }, [transactions, selectedDate]);
+  
+  useEffect(() => {
+    // Re-filter when tab changes
+    filterTransactions();
+  }, [activeTab]);
+
+  // Load persisted active tab on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const v = await AsyncStorage.getItem('lend_active_tab');
+        if (v === 'SELF' || v === 'CUSTOMER') setActiveTab(v as 'SELF' | 'CUSTOMER');
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
 
   const loadTransactions = async () => {
     try {
@@ -44,6 +66,11 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       );
       setTransactions(sorted);
+      // update counts
+      const cust = sorted.filter(t => !!t.personPhone).length;
+      const self = sorted.filter(t => !t.personPhone).length;
+      setCustomerCount(cust);
+      setSelfCount(self);
     } catch (error) {
       console.error('Error loading lend transactions:', error);
     } finally {
@@ -60,6 +87,13 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
         const transactionDate = new Date(transaction.date).toISOString().split('T')[0];
         return transactionDate === selectedDate;
       });
+    }
+
+    // Filter by tab: CUSTOMER => personPhone exists, SELF => no personPhone
+    if (activeTab === 'CUSTOMER') {
+      filtered = filtered.filter(t => !!t.personPhone);
+    } else {
+      filtered = filtered.filter(t => !t.personPhone);
     }
 
     setFilteredTransactions(filtered);
@@ -142,8 +176,37 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
           <Text style={styles.personName}>{item.personName}</Text>
           <Text style={styles.transactionDate}>{formatDate(item.date)}</Text>
         </View>
-        <View style={[styles.statusBadge, {backgroundColor: getStatusColor(item.paymentStatus)}]}>
-          <Text style={styles.statusText}>{getStatusText(item.paymentStatus)}</Text>
+        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+          <View style={[styles.statusBadge, {backgroundColor: getStatusColor(item.paymentStatus)}]}>
+            <Text style={styles.statusText}>{getStatusText(item.paymentStatus)}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => {
+              Alert.alert(
+                'Delete Lend',
+                'Are you sure you want to delete this lend transaction? This action cannot be undone.',
+                [
+                  {text: 'Cancel', style: 'cancel'},
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await TransactionService.deleteLendTransaction(item.id);
+                        // Refresh the list
+                        loadTransactions();
+                      } catch (err) {
+                        console.error('Failed to delete lend transaction', err);
+                        Alert.alert('Error', 'Failed to delete lend transaction.');
+                      }
+                    },
+                  },
+                ],
+              );
+            }}>
+            <Text style={styles.deleteButtonText}>Delete</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -218,6 +281,7 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
       {/* Header with Add Button */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Lend Transactions</Text>
+        {/* tabs moved below header to avoid overlap */}
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={[styles.dateButton, selectedDate ? styles.dateButtonActive : null]}
@@ -239,6 +303,19 @@ export const LendTransactionsListScreen: React.FC<any> = ({navigation}) => {
             <Text style={styles.headerAddButtonText}>+ Add</Text>
           </TouchableOpacity>
         </View>
+      </View>
+      {/* Tabs - placed below header */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'CUSTOMER' ? styles.tabActive : null]}
+          onPress={async () => { setActiveTab('CUSTOMER'); await AsyncStorage.setItem('lend_active_tab', 'CUSTOMER'); }}>
+          <Text style={[styles.tabText, activeTab === 'CUSTOMER' ? styles.tabTextActive : null]}>Customer ({customerCount})</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'SELF' ? styles.tabActive : null]}
+          onPress={async () => { setActiveTab('SELF'); await AsyncStorage.setItem('lend_active_tab', 'SELF'); }}>
+          <Text style={[styles.tabText, activeTab === 'SELF' ? styles.tabTextActive : null]}>Self ({selfCount})</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Results Count */}
@@ -455,6 +532,20 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.sm,
   },
+  deleteButton: {
+    marginLeft: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    backgroundColor: Colors.surface,
+  },
+  deleteButtonText: {
+    ...Typography.caption,
+    color: Colors.error,
+    fontWeight: '600',
+  },
   statusText: {
     ...Typography.caption,
     color: Colors.textLight,
@@ -560,5 +651,33 @@ const styles = StyleSheet.create({
     ...Typography.button,
     color: Colors.textLight,
     fontWeight: '600',
+  },
+  /* tabContainer removed - tabs are rendered in `tabsRow` below header */
+  tabContainer: {
+    flexDirection: 'row',
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+  },
+  tabActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  tabText: {
+    ...Typography.body1,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  tabTextActive: {
+    color: Colors.textLight,
   },
 });

@@ -913,13 +913,20 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     marginBottom: Spacing.xl,
-    gap: Spacing.sm,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   shareButton: {
     backgroundColor: Colors.primary,
-    padding: Spacing.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+    marginRight: Spacing.sm,
   },
   shareButtonText: {
     ...Typography.button,
@@ -928,11 +935,14 @@ const styles = StyleSheet.create({
   },
   editButton: {
     backgroundColor: Colors.background,
-    padding: Spacing.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
+    flex: 1,
+    minWidth: 0,
   },
   editButtonText: {
     ...Typography.button,

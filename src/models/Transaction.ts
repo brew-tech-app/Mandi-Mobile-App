@@ -82,6 +82,7 @@ export interface LendTransaction extends BaseTransaction {
   personName: string;
   personPhone?: string;
   lendType: 'MONEY' | 'GRAIN';
+  invoiceNumber?: string;
   amount?: number; // for money lending
   grainType?: string; // for grain lending
   quantity?: number; // for grain lending (in quintals)
@@ -170,6 +171,7 @@ export const TableSchemas = {
       amount REAL,
       grain_type TEXT,
       quantity REAL,
+      invoice_number TEXT,
       expected_return_date TEXT,
       returned_amount REAL DEFAULT 0,
       returned_quantity REAL DEFAULT 0,
@@ -210,6 +212,7 @@ export interface DashboardSummary {
   totalBuyCommission: number;
   totalSellCommission: number;
   totalSellLabourCharges: number;
+  totalInterestEarned?: number;
   profit: number;
   recentTransactions: Transaction[];
 }

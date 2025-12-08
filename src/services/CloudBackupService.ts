@@ -261,7 +261,7 @@ class CloudBackupService {
       const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
       const list = raw ? JSON.parse(raw) : [];
       // Normalize legacy string entries
-      const normalized: Array<{transactionId: string; retryCount: number; nextAttempt?: number}> = [];
+      const normalized: Array<{transactionId: string; retryCount: number; nextAttempt?: number; errorCount?: number; lastError?: string}> = [];
       for (const item of list) {
         if (typeof item === 'string') {
           normalized.push({transactionId: item, retryCount: 0});
@@ -285,7 +285,7 @@ class CloudBackupService {
     try {
       const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
       const list = raw ? JSON.parse(raw) : [];
-      const normalized: Array<{transactionId: string; retryCount: number; nextAttempt?: number}> = [];
+      const normalized: Array<{transactionId: string; retryCount: number; nextAttempt?: number; errorCount?: number; lastError?: string}> = [];
       for (const item of list) {
         if (typeof item === 'string') {
           normalized.push({transactionId: item, retryCount: 0});
@@ -317,7 +317,7 @@ class CloudBackupService {
       const raw = await AsyncStorage.getItem(this.PENDING_UPLOADS_KEY);
       const list = raw ? JSON.parse(raw) : [];
       // Normalize to entries
-      const entries: Array<{transactionId: string; retryCount: number; nextAttempt?: number}> = [];
+      const entries: Array<{transactionId: string; retryCount: number; nextAttempt?: number; errorCount?: number; lastError?: string}> = [];
       for (const item of list) {
         if (typeof item === 'string') entries.push({transactionId: item, retryCount: 0});
         else if (item && item.transactionId) entries.push(item);
@@ -752,7 +752,8 @@ class CloudBackupService {
    */
   private async createLocalTransaction(cloudTransaction: any, remoteId?: string): Promise<boolean> {
     const transaction: Transaction = cloudTransaction.data as Transaction;
-    const transactionType: string = transaction.transactionType;
+    // keep the discriminant access directly on the union so TypeScript can narrow types
+    // transaction.transactionType is a discriminant (BUY|SELL|LEND|EXPENSE)
     const cloudUpdatedAt: string | undefined = cloudTransaction.updatedAt;
 
     // Initialize mapping repo
@@ -791,7 +792,7 @@ class CloudBackupService {
     }
 
     // Helper to use invoice-based dedupe for BUY and SELL
-    if (transactionType === 'BUY') {
+    if (transaction.transactionType === 'BUY') {
       const existingById = await TransactionService.getBuyTransaction(transaction.id);
       if (existingById) return false;
 
@@ -809,7 +810,7 @@ class CloudBackupService {
       return true;
     }
 
-    if (transactionType === 'SELL') {
+    if (transaction.transactionType === 'SELL') {
       const existingById = await TransactionService.getSellTransaction(transaction.id);
       if (existingById) return false;
 
@@ -828,7 +829,7 @@ class CloudBackupService {
     }
 
     // For LEND and EXPENSE there is no invoiceNumber; use heuristics to dedupe
-    if (transactionType === 'LEND') {
+    if (transaction.transactionType === 'LEND') {
       const existingById = await TransactionService.getLendTransaction(transaction.id);
       if (existingById) return false;
 
@@ -854,7 +855,7 @@ class CloudBackupService {
       return true;
     }
 
-    if (transactionType === 'EXPENSE') {
+    if (transaction.transactionType === 'EXPENSE') {
       const existingById = await TransactionService.getExpenseTransaction(transaction.id);
       if (existingById) return false;
 
@@ -865,7 +866,8 @@ class CloudBackupService {
         const eDate = new Date(e.date);
         const sameDay = eDate.toDateString() === txDate.toDateString();
         const sameAmount = Math.abs((e.amount || 0) - (transaction.amount || 0)) < 0.0001;
-        const sameCategory = (e.category || '').trim() && (transaction.category || '').trim() && (e.category || '').trim() === (transaction.category || '').trim();
+        // Model uses `expenseCategory` field name; use that for dedupe
+        const sameCategory = (e.expenseCategory || '').trim() && (transaction.expenseCategory || '').trim() && (e.expenseCategory || '').trim() === (transaction.expenseCategory || '').trim();
         return sameDay && sameAmount && sameCategory;
       });
 

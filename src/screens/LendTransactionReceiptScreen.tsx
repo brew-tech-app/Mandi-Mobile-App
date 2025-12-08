@@ -32,7 +32,7 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
   const [paymentDate, setPaymentDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'ONLINE' | 'CHEQUE'>('CASH');
-  const [paymentNotes, setPaymentNotes] = useState('');
+  // Notes removed from UI; notes will be generated automatically when recording payment
 
   useEffect(() => {
     loadTransaction();
@@ -106,7 +106,6 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
 
     // Start with the current balance from the transaction (this is the remaining principal after all payments)
     let currentPrincipal = transaction.balanceAmount || 0;
-    
     // If there are no payments yet, use the original loan amount
     if (sortedPayments.length === 0) {
       currentPrincipal = transaction.amount || 0;
@@ -235,42 +234,18 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
     if (!transaction) return;
 
     try {
-      // Create payment record using PaymentRepository directly
-      const db = await import('../database/DatabaseService').then(m => m.default.getDatabase());
-      const {PaymentRepository} = await import('../repositories/PaymentRepository');
-      const paymentRepo = new PaymentRepository(db);
-      
-      const interestPayment = Math.min(amount, totalInterest);
-      
-      await paymentRepo.create({
-        transactionId: transaction.id,
-        transactionType: 'LEND',
-        amount: amount,
-        paymentDate: paymentDate.toISOString(),
-        paymentMode: paymentMode,
-        notes: paymentNotes || 
-          `Payment: ₹${amount.toFixed(2)} (Interest: ₹${interestPayment.toFixed(0)}, Principal: ₹${principalPayment.toFixed(2)})`,
-      });
-
-      // Update transaction amounts
-      // For interest-first allocation: only principal payment reduces balance
-      const newReturnedAmount = transaction.returnedAmount + principalPayment;
-      const newBalanceAmount = (transaction.amount || 0) - newReturnedAmount;
-      const newPaymentStatus = newBalanceAmount <= 0 
-        ? PaymentStatus.COMPLETED 
-        : PaymentStatus.PARTIAL;
-
-      await TransactionService.updateLendTransaction(transaction.id, {
-        returnedAmount: newReturnedAmount,
-        balanceAmount: Math.max(0, newBalanceAmount),
-        paymentStatus: newPaymentStatus,
-      });
+      await TransactionService.addLendPayment(
+        transaction.id,
+        amount,
+        paymentMode,
+        paymentDate.toISOString(),
+        paymentType,
+      );
 
       Alert.alert('Success', 'Payment recorded successfully', [
         {text: 'OK', onPress: () => {
           setIsPaymentModalVisible(false);
           setPaymentAmount('');
-          setPaymentNotes('');
           loadTransaction();
         }}
       ]);
@@ -543,28 +518,20 @@ export const LendTransactionReceiptScreen: React.FC<any> = ({route, navigation})
               </View>
             </View>
 
-            {/* Notes */}
-            <View style={styles.modalSection}>
-              <Text style={styles.modalLabel}>Notes (Optional)</Text>
-              <TextInput
-                style={[styles.modalInput, styles.notesInput]}
-                placeholder="Add notes"
-                value={paymentNotes}
-                onChangeText={setPaymentNotes}
-                multiline
-              />
-            </View>
+            {/* Notes removed per UX request; notes are generated automatically on save */}
 
             <View style={styles.modalActions}>
               <CustomButton
                 title="Cancel"
                 onPress={() => setIsPaymentModalVisible(false)}
                 variant="secondary"
+                style={{flex: 1, minWidth: 0}}
               />
               <View style={{width: Spacing.md}} />
               <CustomButton
                 title="Record Payment"
                 onPress={handleAddPayment}
+                style={{flex: 1, minWidth: 0}}
               />
             </View>
           </View>
@@ -885,7 +852,8 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
     marginTop: Spacing.lg,
   },
   calendarModal: {

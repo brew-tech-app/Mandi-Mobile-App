@@ -23,8 +23,8 @@ export class PaymentRepository extends BaseRepository<Payment> {
     const query = `
       INSERT INTO payments (
         id, transaction_id, transaction_type, amount, payment_date,
-        payment_mode, notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        principal_amount, interest_amount, payment_mode, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await this.db.executeSql(query, [
@@ -33,6 +33,8 @@ export class PaymentRepository extends BaseRepository<Payment> {
       data.transactionType,
       data.amount,
       data.paymentDate,
+      data.principalAmount || 0,
+      data.interestAmount || 0,
       data.paymentMode,
       data.notes || null,
       now,
@@ -100,6 +102,8 @@ export class PaymentRepository extends BaseRepository<Payment> {
     const query = `
       UPDATE payments
       SET amount = COALESCE(?, amount),
+          principal_amount = COALESCE(?, principal_amount),
+          interest_amount = COALESCE(?, interest_amount),
           payment_date = COALESCE(?, payment_date),
           payment_mode = COALESCE(?, payment_mode),
           notes = COALESCE(?, notes),
@@ -109,6 +113,8 @@ export class PaymentRepository extends BaseRepository<Payment> {
 
     await this.db.executeSql(query, [
       data.amount !== undefined ? data.amount : null,
+      data.principalAmount !== undefined ? data.principalAmount : null,
+      data.interestAmount !== undefined ? data.interestAmount : null,
       data.paymentDate || null,
       data.paymentMode || null,
       data.notes !== undefined ? data.notes : null,
@@ -156,6 +162,8 @@ export class PaymentRepository extends BaseRepository<Payment> {
       transactionId: row.transaction_id,
       transactionType: row.transaction_type,
       amount: row.amount,
+      principalAmount: row.principal_amount,
+      interestAmount: row.interest_amount,
       paymentDate: row.payment_date,
       paymentMode: row.payment_mode,
       notes: row.notes,

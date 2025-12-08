@@ -10,6 +10,8 @@ export interface Payment {
   paymentDate: string;
   paymentMode: 'CASH' | 'ONLINE' | 'CHEQUE';
   notes?: string;
+  principalAmount?: number;
+  interestAmount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -23,6 +25,8 @@ export const PaymentTableSchema = `
     transaction_id TEXT NOT NULL,
     transaction_type TEXT NOT NULL,
     amount REAL NOT NULL,
+    principal_amount REAL DEFAULT 0,
+    interest_amount REAL DEFAULT 0,
     payment_date TEXT NOT NULL,
     payment_mode TEXT NOT NULL,
     notes TEXT,

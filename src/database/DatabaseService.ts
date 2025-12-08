@@ -133,6 +133,41 @@ export class DatabaseService {
       `).catch((e) => {
         console.log('sync_logs table already exists or could not be created', e?.message || e);
       });
+
+      // Migration: Ensure lend_transactions has expected columns (safe to run repeatedly)
+      // Older app installs may have an earlier lend_transactions schema; add missing columns if necessary.
+      const lendAlterStmts = [
+        "ALTER TABLE lend_transactions ADD COLUMN expected_return_date TEXT",
+        "ALTER TABLE lend_transactions ADD COLUMN returned_amount REAL DEFAULT 0",
+        "ALTER TABLE lend_transactions ADD COLUMN returned_quantity REAL DEFAULT 0",
+        "ALTER TABLE lend_transactions ADD COLUMN balance_amount REAL DEFAULT 0",
+        "ALTER TABLE lend_transactions ADD COLUMN balance_quantity REAL DEFAULT 0",
+        "ALTER TABLE lend_transactions ADD COLUMN payment_status TEXT DEFAULT 'PENDING'",
+        "ALTER TABLE lend_transactions ADD COLUMN invoice_number TEXT",
+      ];
+
+      for (const stmt of lendAlterStmts) {
+        // swallow errors when column already exists
+        // sqlite will error if column exists, so we catch and log and continue
+        // keeping migrations idempotent
+        // eslint-disable-next-line no-await-in-loop
+        await this.database.executeSql(stmt).catch((e) => {
+          // detect "duplicate column name" or generic errors and ignore
+          console.log('lend migration (safe add) skipped or failed:', e?.message || e);
+        });
+      }
+      // Migration: Add interest/principal columns to payments table if missing
+      const paymentAlterStmts = [
+        "ALTER TABLE payments ADD COLUMN principal_amount REAL DEFAULT 0",
+        "ALTER TABLE payments ADD COLUMN interest_amount REAL DEFAULT 0",
+      ];
+      for (const stmt of paymentAlterStmts) {
+        // swallow errors when column already exists
+        // eslint-disable-next-line no-await-in-loop
+        await this.database.executeSql(stmt).catch((e) => {
+          console.log('payments migration (safe add) skipped or failed:', e?.message || e);
+        });
+      }
       
       console.log('Migrations completed successfully');
     } catch (error) {

@@ -43,7 +43,6 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
       }
     }, [searchPhone])
   );
-
   const loadTransactions = async () => {
     try {
       const data = await TransactionService.getAllSellTransactions();
@@ -136,13 +135,45 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
     <TouchableOpacity
       style={styles.transactionCard}
       onPress={() => navigation.navigate('SellTransactionReceipt', {transactionId: item.id})}>
-      <View style={styles.transactionHeader}>
+        <View style={styles.transactionHeader}>
         <View style={styles.transactionInfo}>
           <Text style={styles.buyerName}>{item.buyerName}</Text>
           <Text style={styles.transactionDate}>{formatDate(item.date)}</Text>
         </View>
-        <View style={[styles.statusBadge, {backgroundColor: getStatusColor(item.paymentStatus)}]}>
-          <Text style={styles.statusText}>{getStatusText(item.paymentStatus)}</Text>
+        <View style={styles.headerRight}>
+          {(() => {
+            // Determine badge label for BillOfSupplyItems payloads.
+            const desc = item.description || '';
+            if (desc.startsWith('BillOfSupplyItems::')) {
+              try {
+                const payload = JSON.parse(decodeURIComponent(desc.replace('BillOfSupplyItems::', '')));
+                const items = Array.isArray(payload) ? payload : (payload.items || []);
+                const meta = Array.isArray(payload) ? {} : (payload.meta || {});
+                const isNormalSingle = !!meta.normal || (items.length === 1 && meta.normal === true);
+                const showBos = !isNormalSingle && items.length > 1;
+                return (
+                  <View style={[styles.typeBadge, showBos ? styles.bosBadge : styles.normalBadge]}>
+                    <Text style={styles.typeBadgeText}>{showBos ? 'Bill of Supply' : 'Normal'}</Text>
+                  </View>
+                );
+              } catch (e) {
+                // Fallback when payload parsing fails
+                return (
+                  <View style={[styles.typeBadge, styles.bosBadge]}>
+                    <Text style={styles.typeBadgeText}>Bill of Supply</Text>
+                  </View>
+                );
+              }
+            }
+            return (
+              <View style={[styles.typeBadge, styles.normalBadge]}>
+                <Text style={styles.typeBadgeText}>Normal</Text>
+              </View>
+            );
+          })()}
+          <View style={[styles.statusBadge, {backgroundColor: getStatusColor(item.paymentStatus), marginLeft: Spacing.sm}] }>
+            <Text style={styles.statusText}>{getStatusText(item.paymentStatus)}</Text>
+          </View>
         </View>
       </View>
 
@@ -508,6 +539,11 @@ const styles = StyleSheet.create({
   transactionInfo: {
     flex: 1,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
   buyerName: {
     ...Typography.h4,
     color: Colors.textPrimary,
@@ -554,6 +590,26 @@ const styles = StyleSheet.create({
   },
   amountSection: {
     alignItems: 'center',
+  },
+  typeBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+    marginLeft: Spacing.sm,
+  },
+  typeBadgeText: {
+    ...Typography.caption,
+    color: Colors.textLight,
+    fontWeight: '600',
+  },
+  bosBadge: {
+    backgroundColor: Colors.primary,
+  },
+  normalBadge: {
+    backgroundColor: Colors.primary,
+  },
+  statusLeftBadge: {
+    marginRight: Spacing.sm,
   },
   amountLabel: {
     ...Typography.caption,

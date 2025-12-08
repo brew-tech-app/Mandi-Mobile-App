@@ -57,6 +57,8 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       pricePerQuintal: '',
     }
   ]);
+  // When multiple transactions are present we can ask Grain Type once
+  const [multiGrainType, setMultiGrainType] = useState('');
   
   // Fees & Charges
   const [commissionPercent, setCommissionPercent] = useState('');
@@ -249,13 +251,14 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       return false;
     }
     
+    // Require a grain type (single top-level for multi items)
+    if (!multiGrainType.trim()) {
+      Alert.alert('Validation Error', `Please enter grain type for the transaction(s)`);
+      return false;
+    }
     // Validate each grain transaction
     for (let i = 0; i < grainTransactions.length; i++) {
       const txn = grainTransactions[i];
-      if (!txn.grainType.trim()) {
-        Alert.alert('Validation Error', `Please enter grain type for transaction ${i + 1}`);
-        return false;
-      }
       if (!txn.numberOfBags || parseFloat(txn.numberOfBags) <= 0) {
         Alert.alert('Validation Error', `Please enter valid number of bags for transaction ${i + 1}`);
         return false;
@@ -308,7 +311,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
     try {
       // Save farmer if new
       if (!farmerExists) {
-        await farmerRepository.create({
+        await farmerRepository!.create({
           phoneNumber: farmerPhone,
           name: farmerName.trim(),
           address: farmerAddress.trim(),
@@ -326,7 +329,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
 
       // Create description with all transactions
       const description = grainTransactions.map((txn, idx) => 
-        `[${idx + 1}] ${txn.grainType}: ${txn.numberOfBags} bags × ${txn.weightPerBag}kg + ${txn.extraWeight || 0}kg @ ₹${txn.pricePerQuintal}/qt`
+        `[${idx + 1}] ${multiGrainType || txn.grainType}: ${txn.numberOfBags} bags × ${txn.weightPerBag}kg + ${txn.extraWeight || 0}kg @ ₹${txn.pricePerQuintal}/qt`
       ).join('; ');
 
       // Calculate rate per quintal
@@ -339,7 +342,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
       await TransactionService.createBuyTransaction({
         supplierName: farmerName.trim(),
         supplierPhone: farmerPhone,
-        grainType: grainTransactions.map(t => t.grainType).join(', '),
+        grainType: multiGrainType || grainTransactions.map(t => t.grainType).join(', '),
         quantity: parseFloat(totalWeight.toFixed(2)),
         ratePerQuintal: parseFloat(ratePerQuintal.toFixed(2)),
         totalAmount: grossAmount,
@@ -376,6 +379,8 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
   const totalCommission = calculateTotalCommission();
   const netPayable = calculateNetPayable();
   const finalNetPayable = calculateFinalNetPayable();
+  // Total deductions (rounded to 0 decimal place): Commission + Labour Charge
+  const totalDeductions = Math.round(totalCommission + totalLabourCharges);
 
   return (
     <KeyboardAvoidingView
@@ -520,7 +525,19 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>🌾 Grain Details</Text>
           </View>
-          
+
+          {/* Grain Type (applies to all items) - single control for single or multi items */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Grain Type *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g., Wheat, Rice, Maize"
+              placeholderTextColor={Colors.textSecondary}
+              value={multiGrainType}
+              onChangeText={setMultiGrainType}
+            />
+          </View>
+
           {grainTransactions.map((transaction, index) => (
             <View key={transaction.id} style={styles.transactionCard}>
               <View style={styles.transactionHeader}>
@@ -534,16 +551,7 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
                 )}
               </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Grain Type *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., Wheat, Rice, Maize"
-                  placeholderTextColor={Colors.textSecondary}
-                  value={transaction.grainType}
-                  onChangeText={(value) => updateGrainTransaction(transaction.id, 'grainType', value)}
-                />
-              </View>
+              {/* Grain Type is provided above (multiGrainType) and applied to each item */}
 
               <View style={styles.row}>
                 <View style={[styles.inputGroup, styles.halfWidth]}>
@@ -674,6 +682,10 @@ export const AddBuyTransactionScreen: React.FC<any> = ({navigation}) => {
             <View style={styles.breakdownRow}>
               <Text style={styles.breakdownLabel}>Total Commission:</Text>
               <Text style={[styles.breakdownValue, styles.deductionValue]}>- ₹ {totalCommission}</Text>
+            </View>
+            <View style={styles.breakdownRow}>
+              <Text style={styles.breakdownLabel}>Total Deductions:</Text>
+              <Text style={[styles.breakdownValue, styles.deductionValue]}>- ₹ {totalDeductions.toFixed(0)}</Text>
             </View>
             <View style={[styles.breakdownRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Net Payable:</Text>

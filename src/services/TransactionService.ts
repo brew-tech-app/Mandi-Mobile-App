@@ -298,7 +298,9 @@ export class TransactionService implements ITransactionService {
   }
 
   public async getAllSellTransactions(): Promise<SellTransaction[]> {
-    return await this.sellRepository.findAll();
+    await this.initializeDatabase();
+    const list = await this.sellRepository.findAll();
+    return list.map(txn => this.fillGrainTypeFromDescription(txn));
   }
 
   public async updateSellTransaction(
@@ -349,7 +351,31 @@ export class TransactionService implements ITransactionService {
   }
 
   public async getSellTransactionById(id: string): Promise<SellTransaction | null> {
-    return await this.sellRepository.findById(id);
+    await this.initializeDatabase();
+    const txn = await this.sellRepository.findById(id);
+    if (!txn) return null;
+    return this.fillGrainTypeFromDescription(txn);
+  }
+
+  /**
+   * If a sell transaction has an encoded `BillOfSupplyItems::` description and its
+   * `grainType` is missing, fill it from the first item in the payload.
+   */
+  private fillGrainTypeFromDescription(txn: SellTransaction): SellTransaction {
+    try {
+      if ((!txn.grainType || txn.grainType.trim() === '') && txn.description && txn.description.startsWith('BillOfSupplyItems::')) {
+        const payloadStr = decodeURIComponent(txn.description.replace('BillOfSupplyItems::', ''));
+        const parsed = JSON.parse(payloadStr) as any;
+        const items: any[] = Array.isArray(parsed) ? parsed : (parsed.items || []);
+        if (items && items.length > 0 && items[0].grainType) {
+          txn.grainType = items[0].grainType;
+        }
+      }
+    } catch (e) {
+      // ignore parse errors — leave grainType as-is
+      console.warn('fillGrainTypeFromDescription: failed to parse description for txn', txn.id, e);
+    }
+    return txn;
   }
 
   public async getMerchantByPhone(phone: string): Promise<any | null> {
@@ -378,9 +404,125 @@ export class TransactionService implements ITransactionService {
       data.invoiceNumber = await this.generateInvoiceNumber('LEND');
     }
     const transaction = await this.lendRepository.create(data);
+    // If this is a money lend to a customer (personPhone present), deduct cash immediately
+    try {
+      if (data.lendType === 'MONEY') {
+        if (data.personPhone) {
+          // Customer loan: money goes out from cash
+          await CashBalanceService.onLendMoney(data.personName, data.amount || 0);
+        } else {
+          // Self loan: treat as cash added to current balance
+          await CashBalanceService.addToBalance(data.amount || 0, `Self loan created: ${data.personName || 'Self'}`);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating cash balance on lend creation:', err);
+    }
     // Auto-sync to cloud (non-blocking)
     this.autoSyncToCloud(transaction).catch(console.error);
     return transaction;
+  }
+
+  /**
+   * Add a payment to a lend transaction. This will calculate interest/principal split,
+   * persist payment (with interest/principal amounts), update transaction balances,
+   * update cash balance and sync changes.
+   */
+  public async addLendPayment(
+    transactionId: string,
+    amount: number,
+    paymentMode: 'CASH' | 'ONLINE' | 'CHEQUE',
+    paymentDate?: string,
+    paymentType: 'PARTIAL' | 'FINAL' = 'PARTIAL',
+  ) {
+    await this.initializeDatabase();
+
+    const transaction = await this.lendRepository.findById(transactionId);
+    if (!transaction) throw new Error('Transaction not found');
+
+    // Payment date
+    const payDate = paymentDate ? new Date(paymentDate) : new Date();
+
+    // Load payment history for interest calculation
+    const paymentHistory = await this.paymentRepository.findByTransactionId(transactionId);
+    const sortedPayments = [...paymentHistory].sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+
+    // Determine current principal for interest calculation
+    let currentPrincipal = transaction.balanceAmount || 0;
+    if (sortedPayments.length === 0) {
+      currentPrincipal = transaction.amount || 0;
+    }
+
+    // Determine start date for interest calculation
+    let currentDate = new Date(transaction.date);
+    if (sortedPayments.length > 0) {
+      const lastPayment = sortedPayments[sortedPayments.length - 1];
+      currentDate = new Date(lastPayment.paymentDate);
+      currentPrincipal = transaction.balanceAmount || 0;
+    }
+
+    // Interest calculation: (principal * rate * days) / (100 * 30)
+    const match = transaction.description ? transaction.description.match(/Interest Rate:\s*(\d+\.?\d*)/) : null;
+    const rate = match ? parseFloat(match[1]) : 0;
+    const days = Math.ceil((payDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
+    const totalInterest = rate > 0 && days > 0 ? Math.round((currentPrincipal * rate * days) / (100 * 30)) : 0;
+    const totalAmountWithInterest = currentPrincipal + totalInterest;
+
+    let interestPayment = 0;
+    let principalPayment = 0;
+    let actualAmount = amount;
+
+    if (paymentType === 'FINAL') {
+      actualAmount = totalAmountWithInterest;
+      interestPayment = totalInterest;
+      principalPayment = currentPrincipal;
+    } else {
+      // Partial: interest paid first
+      interestPayment = Math.min(actualAmount, totalInterest);
+      principalPayment = actualAmount - interestPayment;
+    }
+
+    // Create payment record with interest/principal split
+    const payment = await this.paymentRepository.create({
+      transactionId,
+      transactionType: 'LEND',
+      amount: actualAmount,
+      paymentDate: payDate.toISOString(),
+      paymentMode,
+      notes: `Repayment: ₹${actualAmount.toFixed(2)} (Interest: ₹${interestPayment}, Principal: ₹${principalPayment.toFixed(2)})`,
+      principalAmount: principalPayment,
+      interestAmount: interestPayment,
+    } as any);
+
+    // Update transaction returned/balance amounts (principal reduces balance)
+    const newReturnedAmount = (transaction.returnedAmount || 0) + principalPayment;
+    const newBalanceAmount = Math.max(0, (transaction.amount || 0) - newReturnedAmount);
+    const newPaymentStatus = newBalanceAmount <= 0 ? PaymentStatus.COMPLETED : PaymentStatus.PARTIAL;
+
+    await this.lendRepository.update(transactionId, {
+      returnedAmount: newReturnedAmount,
+      balanceAmount: newBalanceAmount,
+      paymentStatus: newPaymentStatus,
+    });
+
+    // Update cash balance
+    try {
+      // If this was a customer loan (personPhone present) then repayments add to cash
+      if (transaction.personPhone) {
+        await CashBalanceService.onLendRepayment(transaction.personName || 'Customer', actualAmount);
+      } else {
+        // Self loan: settling a self loan means cash goes out (deduct principal + interest)
+        await CashBalanceService.subtractFromBalance(actualAmount, `Settled self loan: ${transaction.personName || 'Self'}`);
+      }
+    } catch (err) {
+      console.error('Error updating cash balance on lend repayment:', err);
+    }
+
+    // Sync updated transaction
+    const updated = await this.lendRepository.findById(transactionId);
+    if (updated) this.autoSyncToCloud(updated as any).catch(console.error);
+
+    return payment;
   }
 
   /**
@@ -551,6 +693,16 @@ export class TransactionService implements ITransactionService {
       (sum, t) => sum + (t.labourCharges || 0),
       0,
     );
+    // Calculate total interest earned in this date range from payments table
+    let totalInterestEarned = 0;
+    try {
+      const allPayments = await this.paymentRepository.findAll();
+      // No date range available in this summary; include all lend interest payments
+      const interestPayments = allPayments.filter(p => p.transactionType === 'LEND');
+      totalInterestEarned = interestPayments.reduce((s, p) => s + (p.interestAmount || 0), 0);
+    } catch (err) {
+      console.warn('Unable to calculate interest payments for dashboard summary', err);
+    }
     const totalBuyLabourCharges = buyTransactions.reduce(
       (sum, t) => sum + (t.labourCharges || 0),
       0,
@@ -559,7 +711,7 @@ export class TransactionService implements ITransactionService {
     // Calculate profit using the formula:
     // Net Profit/Loss = Total Commission(Buy) + Total Commission(Sell) + Labour Charge(Sell) - Expense
     // Note: Sell Commission includes Bill of Supply charges (Arat + Tulak + Mandi Shulk) for applicable transactions
-    const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
+    const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges + totalInterestEarned - totalExpenseAmount;
 
     // Get recent transactions (last 10)
     // Note: Expenses are excluded from recent transactions list as they use different structure
@@ -585,6 +737,7 @@ export class TransactionService implements ITransactionService {
       totalBuyCommission,
       totalSellCommission,
       totalSellLabourCharges,
+      totalInterestEarned,
       profit,
       recentTransactions,
     };
@@ -723,10 +876,40 @@ export class TransactionService implements ITransactionService {
       0,
     );
 
-    // Calculate profit using the formula:
-    // Net Profit/Loss = Total Commission(Buy) + Total Commission(Sell) + Labour Charge(Sell) - Expense
-    // Note: Sell Commission includes Bill of Supply charges (Arat + Tulak + Mandi Shulk) for applicable transactions
-    const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount;
+    // Include interest from lend repayments in profit calculation.
+    // Interest received from customer lend repayments should increase profit.
+    // Interest paid when settling self loans should decrease profit.
+    const allPayments = await this.paymentRepository.findAll();
+    // Map lend transactions by id for quick lookup
+    const lendById: Record<string, any> = {};
+    for (const lt of allLendTransactions) {
+      lendById[lt.id] = lt;
+    }
+
+    // Filter payments in the requested date range
+    const paymentsInRange = allPayments.filter(p => {
+      const pd = new Date(p.paymentDate);
+      return pd >= startDate && pd <= endDate;
+    });
+
+    let interestReceived = 0;
+    let interestPaid = 0;
+    for (const p of paymentsInRange) {
+      if (p.transactionType === 'LEND' && p.interestAmount) {
+        const lendTx = lendById[p.transactionId];
+        if (lendTx && lendTx.personPhone) {
+          // Customer repayment -> interest received
+          interestReceived += p.interestAmount || 0;
+        } else {
+          // Self loan repayment or unknown -> interest paid (cash out)
+          interestPaid += p.interestAmount || 0;
+        }
+      }
+    }
+
+    const netInterest = interestReceived - interestPaid;
+
+    const profit = totalBuyCommission + totalSellCommission + totalSellLabourCharges - totalExpenseAmount + netInterest;
 
     // Get recent transactions from the date range (last 10)
     // Note: Expenses are excluded from recent transactions list as they use different structure
@@ -752,6 +935,8 @@ export class TransactionService implements ITransactionService {
       totalBuyCommission,
       totalSellCommission,
       totalSellLabourCharges,
+      // Net interest (received - paid) included in profit calculation
+      totalInterestEarned: netInterest,
       profit,
       recentTransactions,
     };
@@ -850,6 +1035,39 @@ export class TransactionService implements ITransactionService {
    */
   public async getPaymentsByTransactionId(transactionId: string): Promise<Payment[]> {
     return await this.paymentRepository.findByTransactionId(transactionId);
+  }
+
+  /**
+   * Get interest payments within a date range along with their lend transaction
+   */
+  public async getInterestPaymentsByDateRange(startDate: Date, endDate: Date): Promise<Array<{payment: any; lendTransaction: LendTransaction | null;}>> {
+    await this.initializeDatabase();
+    const allPayments = await this.paymentRepository.findAll();
+    const allLends = await this.lendRepository.findAll();
+
+    // Map lends by id
+    const lendById: Record<string, LendTransaction> = {};
+    for (const l of allLends) {
+      lendById[l.id] = l;
+    }
+
+    const paymentsInRange = allPayments.filter(p => {
+      const pd = new Date(p.paymentDate);
+      return pd >= startDate && pd <= endDate && p.transactionType === 'LEND' && (p.interestAmount || 0) !== 0;
+    });
+
+    return paymentsInRange.map(p => {
+      const lendTx = lendById[p.transactionId] || null;
+      const isCustomer = !!(lendTx && lendTx.personPhone);
+      const interestAmt = p.interestAmount || 0;
+      const signedInterest = isCustomer ? interestAmt : -interestAmt;
+      return {
+        payment: p,
+        lendTransaction: lendTx,
+        signedInterest,
+        direction: isCustomer ? 'RECEIVED' : 'PAID',
+      };
+    });
   }
 
   /**
@@ -987,6 +1205,47 @@ export class TransactionService implements ITransactionService {
       if (updatedSellTx) {
         this.autoSyncToCloud(updatedSellTx as any).catch(console.error);
       }
+    }
+
+    else if (payment.transactionType === 'LEND') {
+      // Get the lend transaction
+      const lendTx = await this.lendRepository.findById(payment.transactionId);
+      if (!lendTx) {
+        throw new Error('Lend transaction not found');
+      }
+
+      // Reverse principal/interest amounts on the lend transaction
+      const principal = payment.principalAmount || 0;
+      const interest = payment.interestAmount || 0;
+
+      const newReturnedAmount = (lendTx.returnedAmount || 0) - principal;
+      const newBalanceAmount = Math.max(0, (lendTx.amount || 0) - Math.max(0, newReturnedAmount));
+      const newPaymentStatus: PaymentStatus = newBalanceAmount <= 0 ? PaymentStatus.COMPLETED : (newReturnedAmount > 0 ? PaymentStatus.PARTIAL : PaymentStatus.PENDING);
+
+      await this.lendRepository.update(payment.transactionId, {
+        returnedAmount: newReturnedAmount,
+        balanceAmount: newBalanceAmount,
+        paymentStatus: newPaymentStatus,
+      });
+
+      // Reverse cash balance effect of the repayment
+      try {
+        if (lendTx.personPhone) {
+          // Customer repayment originally added cash; deleting should deduct
+          const currentBalance = await CashBalanceService.getCurrentBalance();
+          await CashBalanceService.setBalance(currentBalance - (payment.amount || 0));
+        } else {
+          // Self loan repayment originally deducted cash; deleting should add back
+          const currentBalance = await CashBalanceService.getCurrentBalance();
+          await CashBalanceService.setBalance(currentBalance + (payment.amount || 0));
+        }
+      } catch (err) {
+        console.error('Error updating cash balance on lend payment deletion:', err);
+      }
+
+      // Sync updated lend transaction to cloud
+      const updatedLend = await this.lendRepository.findById(payment.transactionId);
+      if (updatedLend) this.autoSyncToCloud(updatedLend as any).catch(console.error);
     }
 
     // Delete the payment record

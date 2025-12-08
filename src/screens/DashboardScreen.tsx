@@ -7,6 +7,7 @@ import {TransactionCard} from '../components/TransactionCard';
 import {FloatingActionButton} from '../components/FloatingActionButton';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import TransactionService, {StockByGrainType} from '../services/TransactionService';
+import NetInfo from '@react-native-community/netinfo';
 import {DashboardSummary} from '../models/Transaction';
 import {formatCurrency, formatQuantity, formatDate} from '../utils/helpers';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,11 +34,35 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
   const [totalStock, setTotalStock] = useState<number>(0);
   const [stockByGrainType, setStockByGrainType] = useState<StockByGrainType[]>([]);
   const [isStockModalVisible, setIsStockModalVisible] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [isProfitModalVisible, setIsProfitModalVisible] = useState(false);
   const [profitTab, setProfitTab] = useState<'buy' | 'sell' | 'interest'>('buy');
+  const [interestPayments, setInterestPayments] = useState<Array<any>>([]);
+  const [loadingInterest, setLoadingInterest] = useState(false);
   const [isLabourModalVisible, setIsLabourModalVisible] = useState(false);
   const [labourTransactions, setLabourTransactions] = useState<any[]>([]);
   const [loadingLabour, setLoadingLabour] = useState(false);
+  
+  useEffect(() => {
+    const fetchInterest = async () => {
+      if (!isProfitModalVisible) return;
+      if (profitTab !== 'interest') return;
+      setLoadingInterest(true);
+      try {
+        const payments = await TransactionService.getInterestPaymentsByDateRange(
+          dateRange.start,
+          dateRange.end,
+        );
+        setInterestPayments(payments);
+      } catch (err) {
+        console.error('Error loading interest payments (effect):', err);
+      } finally {
+        setLoadingInterest(false);
+      }
+    };
+
+    fetchInterest();
+  }, [isProfitModalVisible, profitTab, dateRange.start, dateRange.end]);
 
   const loadDashboardData = async () => {
     try {
@@ -102,6 +127,16 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
       }
       
       setSummary(data);
+      // preload interest payments for the selected date range
+      try {
+        const payments = await TransactionService.getInterestPaymentsByDateRange(
+          dateRange.start,
+          dateRange.end,
+        );
+        setInterestPayments(payments);
+      } catch (err) {
+        console.error('Error loading interest payments:', err);
+      }
     } catch (error) {
       console.error('Error loading summary by tab:', error);
       throw error;
@@ -161,6 +196,8 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
 
   useEffect(() => {
     loadDashboardData();
+    const sub = NetInfo.addEventListener(state => setIsOnline(!!state.isConnected));
+    return () => sub();
   }, []);
 
   useEffect(() => {
@@ -237,6 +274,12 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
           <Text style={styles.headerTitle}>Grain Ledger</Text>
           <Text style={styles.headerSubtitle}>HOME</Text>
         </View>
+        <View style={styles.headerRightIndicator}>
+          {/* small online indicator: green circle = online, red = offline, hidden if unknown */}
+          {isOnline !== null && (
+            <View style={[styles.onlineDot, {backgroundColor: isOnline ? Colors.success : Colors.error}]} />
+          )}
+        </View>
         
         {/* Search Bar - Positioned at bottom of header */}
         <View style={styles.searchContainer}>
@@ -270,6 +313,21 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
         </View>
       </View>
 
+      {/* Current Balance Card - Detached from header */}
+      <View style={styles.balanceCardContainer}>
+        <TouchableOpacity 
+          style={styles.balanceCard}
+          onPress={() => setIsBalanceModalVisible(true)}
+          activeOpacity={0.8}>
+          <Text style={styles.balanceLabel}>Current Cash Balance</Text>
+          <Text style={styles.balanceSubLabel}>(Tap to update)</Text>
+          <View style={styles.balanceAmountContainer}>
+            <Text style={styles.rupeeSymbol}>₹</Text>
+            <Text style={styles.balanceAmount}>{currentCashBalance.toFixed(2)}</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
@@ -282,19 +340,6 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
             tintColor={Colors.primary}
           />
         }>
-
-        {/* Current Balance Card */}
-        <TouchableOpacity 
-          style={styles.balanceCard}
-          onPress={() => setIsBalanceModalVisible(true)}
-          activeOpacity={0.8}>
-          <Text style={styles.balanceLabel}>Current Cash Balance</Text>
-          <Text style={styles.balanceSubLabel}>(Tap to update)</Text>
-          <View style={styles.balanceAmountContainer}>
-            <Text style={styles.rupeeSymbol}>₹</Text>
-            <Text style={styles.balanceAmount}>{currentCashBalance.toFixed(2)}</Text>
-          </View>
-        </TouchableOpacity>
 
         {/* Operational Summary Header */}
         <View style={styles.section}>
@@ -391,7 +436,7 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
             {/* Total Expenses */}
             <TouchableOpacity 
               style={[styles.stackCard, styles.expenseCard]}
-              onPress={() => navigation.navigate('Expense')}
+              onPress={() => navigation.navigate('ExpenseTransactions')}
               activeOpacity={0.8}>
               <Icon name="receipt" size={32} color={Colors.expense} style={styles.metricIcon} />
               <Text style={styles.metricValue}>{formatCurrency(summary?.totalExpenseAmount || 0)}</Text>
@@ -685,12 +730,76 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
               {profitTab === 'interest' && (
                 <View>
                   <View style={styles.profitSummaryCard}>
-                    <Text style={styles.profitSummaryLabel}>Interest Feature</Text>
-                    <Text style={styles.profitSummaryValue}>Coming Soon</Text>
+                    <Text style={styles.profitSummaryLabel}>Net Interest (Received - Paid)</Text>
+                    <Text style={styles.profitSummaryValue}>
+                      {formatCurrency(summary?.totalInterestEarned || 0)}
+                    </Text>
                   </View>
-                  <Text style={styles.profitEmptyText}>
-                    Interest tracking for lend transactions will be available in a future update.
-                  </Text>
+
+                  <Text style={styles.profitSectionTitle}>Interest Transactions</Text>
+                  {interestPayments.length === 0 ? (
+                    <Text style={styles.profitEmptyText}>No interest transactions found for the selected range.</Text>
+                  ) : (
+                    interestPayments.map((item, idx) => {
+                      const signed = item.signedInterest || 0;
+                      const positive = signed > 0;
+
+                      const onDelete = async () => {
+                        Alert.alert(
+                          'Delete Payment',
+                          'Delete this interest payment? This will reverse balances and update cash.',
+                          [
+                            {text: 'Cancel', style: 'cancel'},
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: async () => {
+                                try {
+                                  setLoadingInterest(true);
+                                  await TransactionService.deletePayment(item.payment.id);
+                                  // Refresh dashboard data and interest list
+                                  await loadDashboardData();
+                                  const payments = await TransactionService.getInterestPaymentsByDateRange(
+                                    dateRange.start,
+                                    dateRange.end,
+                                  );
+                                  setInterestPayments(payments);
+                                } catch (err) {
+                                  console.error('Error deleting payment:', err);
+                                  Alert.alert('Error', 'Failed to delete payment');
+                                } finally {
+                                  setLoadingInterest(false);
+                                }
+                              },
+                            },
+                          ],
+                        );
+                      };
+
+                      return (
+                        <View key={idx} style={styles.profitTransactionCard}>
+                          <View style={styles.profitTransactionLeft}>
+                            <Text style={styles.profitTransactionTitle}>{item.lendTransaction?.personName || 'Unknown'}</Text>
+                            <Text style={styles.profitTransactionSubtitle}>
+                              {item.lendTransaction?.lendType || 'LEND'} • {formatDate(item.payment.paymentDate)}
+                            </Text>
+                            <Text style={styles.profitTransactionDetails}>
+                              Interest: {formatCurrency(item.payment.interestAmount || 0)} | Principal: {formatCurrency(item.payment.principalAmount || 0)}
+                            </Text>
+                          </View>
+
+                          <View style={styles.profitTransactionRight}>
+                            <Text style={[styles.profitTransactionAmount, {color: positive ? Colors.success : Colors.error}]}> 
+                              {positive ? '+' : '-'}{formatCurrency(Math.abs(signed))}
+                            </Text>
+                            <TouchableOpacity onPress={onDelete} style={styles.deleteButton}>
+                              <Icon name="delete" size={18} color={Colors.error} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
                 </View>
               )}
             </ScrollView>
@@ -918,7 +1027,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: Spacing.md,
-    paddingTop: 0,
   },
   loadingText: {
     ...Typography.body1,
@@ -938,6 +1046,21 @@ const styles = StyleSheet.create({
   headerContent: {
     alignItems: 'center',
   },
+  headerRightIndicator: {
+    position: 'absolute',
+    right: Spacing.md,
+    top: 40,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  onlineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.textLight,
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -954,7 +1077,7 @@ const styles = StyleSheet.create({
   // Search Bar
   searchContainer: {
     marginTop: Spacing.md,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.lg,
   },
   searchBar: {
     flexDirection: 'row',
@@ -986,39 +1109,47 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   
+  // Balance Card Container
+  balanceCardContainer: {
+    backgroundColor: Colors.background,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  
   // Balance Card
   balanceCard: {
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.lg,
-    padding: Spacing.xl,
-    marginBottom: Spacing.lg,
+    padding: Spacing.lg,
     alignItems: 'center',
     ...Shadow.medium,
   },
   balanceLabel: {
     color: Colors.textLight,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     marginBottom: Spacing.xs,
   },
   balanceSubLabel: {
     color: Colors.textLight,
-    fontSize: 12,
+    fontSize: 11,
     opacity: 0.7,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   balanceAmountContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   rupeeSymbol: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: Colors.textLight,
     marginRight: Spacing.xs,
   },
   balanceAmount: {
-    fontSize: 48,
+    fontSize: 36,
     fontWeight: 'bold',
     color: Colors.textLight,
   },
@@ -1277,6 +1408,14 @@ const styles = StyleSheet.create({
   },
   modalButtonSave: {
     backgroundColor: Colors.primary,
+  },
+  profitTransactionRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  deleteButton: {
+    marginTop: Spacing.xs,
+    padding: Spacing.xs,
   },
   modalButtonText: {
     ...Typography.button,

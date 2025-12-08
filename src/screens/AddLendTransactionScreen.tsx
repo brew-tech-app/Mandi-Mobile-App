@@ -27,6 +27,8 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [personName, setPersonName] = useState('');
   const [address, setAddress] = useState('');
+  const [mode, setMode] = useState<'Customer' | 'Self'>('Customer');
+  const [lenderName, setLenderName] = useState('');
   const [amount, setAmount] = useState('');
   const [interestRate, setInterestRate] = useState('');
   const [loading, setLoading] = useState(false);
@@ -83,20 +85,52 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
     }
   };
 
+  const selectMode = (m: 'Customer' | 'Self') => {
+    setMode(m);
+    // Clear fields that don't apply to the selected mode
+    if (m === 'Self') {
+      setPhoneNumber('');
+      setPersonName('');
+      setAddress('');
+      setFarmerExists(false);
+      setActiveLoansInfo('');
+    } else {
+      setLenderName('');
+    }
+  };
+
   const validateForm = () => {
-    if (!phoneNumber || phoneNumber.length !== 10) {
-      Alert.alert('Validation Error', 'Please enter a valid 10-digit phone number');
-      return false;
-    }
+    // Mode-specific validations
+    if (mode === 'Customer') {
+      if (!phoneNumber || phoneNumber.length !== 10) {
+        Alert.alert('Validation Error', 'Please enter a valid 10-digit phone number');
+        return false;
+      }
 
-    if (!personName.trim()) {
-      Alert.alert('Validation Error', 'Please enter person name');
-      return false;
-    }
+      if (!personName.trim()) {
+        Alert.alert('Validation Error', 'Please enter person name');
+        return false;
+      }
 
-    if (!address.trim()) {
-      Alert.alert('Validation Error', 'Please enter address');
-      return false;
+      if (!address.trim()) {
+        Alert.alert('Validation Error', 'Please enter address');
+        return false;
+      }
+
+      if (activeLoansInfo) {
+        Alert.alert(
+          'Active Loan Exists',
+          'This person has an active loan in Buy Transactions. Please settle it first before creating a new loan.',
+          [{text: 'OK'}]
+        );
+        return false;
+      }
+    } else {
+      // Self mode
+      if (!lenderName.trim()) {
+        Alert.alert('Validation Error', 'Please enter lender name');
+        return false;
+      }
     }
 
     const amountValue = parseFloat(amount);
@@ -111,15 +145,6 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
       return false;
     }
 
-    if (activeLoansInfo) {
-      Alert.alert(
-        'Active Loan Exists',
-        'This person has an active loan in Buy Transactions. Please settle it first before creating a new loan.',
-        [{text: 'OK'}]
-      );
-      return false;
-    }
-
     return true;
   };
 
@@ -130,33 +155,51 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
 
     setLoading(true);
     try {
-      // Save farmer if not exists
-      if (!farmerExists) {
-        const db = DatabaseService.getDatabase();
-        const farmerRepo = new FarmerRepository(db);
-        await farmerRepo.create({
-          name: personName.trim(),
-          phoneNumber: phoneNumber,
-          address: address.trim(),
-        });
-      }
-
-      // Create lend transaction (interestRate stored in description for reference)
+      // Mode-specific save behavior
       const loanAmount = parseFloat(amount);
       const rate = parseFloat(interestRate);
-      await TransactionService.createLendTransaction({
-        date: date.toISOString(),
-        personName: personName.trim(),
-        personPhone: phoneNumber,
-        lendType: 'MONEY',
-        amount: loanAmount,
-        description: `Loan Amount: ₹${loanAmount.toFixed(2)} | Interest Rate: ${rate}%`,
-        returnedAmount: 0,
-        returnedQuantity: 0,
-        balanceAmount: loanAmount,
-        balanceQuantity: 0,
-        paymentStatus: PaymentStatus.PENDING,
-      });
+
+      if (mode === 'Customer') {
+        // Save farmer if not exists
+        if (!farmerExists) {
+          const db = DatabaseService.getDatabase();
+          const farmerRepo = new FarmerRepository(db);
+          await farmerRepo.create({
+            name: personName.trim(),
+            phoneNumber: phoneNumber,
+            address: address.trim(),
+          });
+        }
+
+        await TransactionService.createLendTransaction({
+          date: date.toISOString(),
+          personName: personName.trim(),
+          personPhone: phoneNumber,
+          lendType: 'MONEY',
+          amount: loanAmount,
+          description: `Loan Amount: ₹${loanAmount.toFixed(2)} | Interest Rate: ${rate}%`,
+          returnedAmount: 0,
+          returnedQuantity: 0,
+          balanceAmount: loanAmount,
+          balanceQuantity: 0,
+          paymentStatus: PaymentStatus.PENDING,
+        });
+      } else {
+        // Self mode: lenderName used as personName, do not save farmer record
+        await TransactionService.createLendTransaction({
+          date: date.toISOString(),
+          personName: lenderName.trim(),
+          personPhone: undefined as any,
+          lendType: 'MONEY',
+          amount: loanAmount,
+          description: `Loan (Self - Lender: ${lenderName.trim()}) Amount: ₹${loanAmount.toFixed(2)} | Interest Rate: ${rate}%`,
+          returnedAmount: 0,
+          returnedQuantity: 0,
+          balanceAmount: loanAmount,
+          balanceQuantity: 0,
+          paymentStatus: PaymentStatus.PENDING,
+        });
+      }
 
       Alert.alert('Success', 'Loan saved successfully!', [
         {
@@ -183,6 +226,22 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+        {/* Mode Selector */}
+        <View style={styles.section}>
+          <Text style={styles.label}>Loan For</Text>
+          <View style={styles.modeRow}>
+            <TouchableOpacity
+              style={[styles.modeButton, mode === 'Customer' && styles.modeButtonActive]}
+              onPress={() => selectMode('Customer')}>
+              <Text style={[styles.modeButtonText, mode === 'Customer' && styles.modeButtonTextActive]}>Customer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeButton, mode === 'Self' && styles.modeButtonActive]}
+              onPress={() => selectMode('Self')}>
+              <Text style={[styles.modeButtonText, mode === 'Self' && styles.modeButtonTextActive]}>Self</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         {/* Date Picker */}
         <View style={styles.section}>
           <Text style={styles.label}>Date *</Text>
@@ -244,20 +303,22 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
           </View>
         </Modal>
 
-        {/* Phone Number */}
-        <View style={styles.section}>
-          <CustomInput
-            label="Phone Number *"
-            value={phoneNumber}
-            onChangeText={handlePhoneNumberChange}
-            placeholder="Enter 10-digit phone number"
-            keyboardType="phone-pad"
-            maxLength={10}
-          />
-          {farmerExists && (
-            <Text style={styles.successText}>✓ Farmer details found</Text>
-          )}
-        </View>
+        {/* Phone Number (Customer mode) */}
+        {mode === 'Customer' && (
+          <View style={styles.section}>
+            <CustomInput
+              label="Phone Number *"
+              value={phoneNumber}
+              onChangeText={handlePhoneNumberChange}
+              placeholder="Enter 10-digit phone number"
+              keyboardType="phone-pad"
+              maxLength={10}
+            />
+            {farmerExists && (
+              <Text style={styles.successText}>✓ Farmer details found</Text>
+            )}
+          </View>
+        )}
 
         {/* Active Loans Warning */}
         {activeLoansInfo && (
@@ -266,29 +327,40 @@ export const AddLendTransactionScreen: React.FC<any> = ({navigation}) => {
           </View>
         )}
 
-        {/* Person Name */}
+        {/* Person Name or Lender Name */}
         <View style={styles.section}>
-          <CustomInput
-            label="Name *"
-            value={personName}
-            onChangeText={setPersonName}
-            placeholder="Enter person name"
-            editable={!farmerExists}
-          />
+          {mode === 'Customer' ? (
+            <CustomInput
+              label="Name *"
+              value={personName}
+              onChangeText={setPersonName}
+              placeholder="Enter person name"
+              editable={!farmerExists}
+            />
+          ) : (
+            <CustomInput
+              label="Lender Name *"
+              value={lenderName}
+              onChangeText={setLenderName}
+              placeholder="Enter lender name"
+            />
+          )}
         </View>
 
-        {/* Address */}
-        <View style={styles.section}>
-          <CustomInput
-            label="Address *"
-            value={address}
-            onChangeText={setAddress}
-            placeholder="Enter address"
-            multiline
-            numberOfLines={3}
-            editable={!farmerExists}
-          />
-        </View>
+        {/* Address (Customer mode only) */}
+        {mode === 'Customer' && (
+          <View style={styles.section}>
+            <CustomInput
+              label="Address *"
+              value={address}
+              onChangeText={setAddress}
+              placeholder="Enter address"
+              multiline
+              numberOfLines={3}
+              editable={!farmerExists}
+            />
+          </View>
+        )}
 
         {/* Amount */}
         <View style={styles.section}>
@@ -348,6 +420,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     marginBottom: Spacing.sm,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  modeButtonText: {
+    ...Typography.body2,
+    color: Colors.textPrimary,
+    fontWeight: '600',
+  },
+  modeButtonTextActive: {
+    color: Colors.textLight,
   },
   dateButton: {
     backgroundColor: Colors.surface,

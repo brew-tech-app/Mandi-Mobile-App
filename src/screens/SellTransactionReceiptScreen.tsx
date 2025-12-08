@@ -191,16 +191,78 @@ export const SellTransactionReceiptScreen: React.FC<any> = ({route, navigation})
     text += `GRAIN DETAILS\n`;
     text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
     
-    // Parse grain details from description
-    if (txn.description && txn.description.includes('@')) {
-      const match = txn.description.match(/([^:]+):\s*(\d+)\s*bags\s*×\s*([\d.]+)kg(?:\s*\+\s*([\d.]+)kg)?\s*@\s*₹([\d.]+)\/qt/);
-      if (match) {
-        const [, grainType, bags, weight, extra, price] = match;
+    // Support multiple items for Bill of Supply stored as encoded JSON in description
+    if (txn.description && txn.description.startsWith('BillOfSupplyItems::')) {
+      try {
+        const payloadStr = decodeURIComponent(txn.description.replace('BillOfSupplyItems::', ''));
+        const parsed = JSON.parse(payloadStr) as any;
+        const items: Array<any> = Array.isArray(parsed) ? parsed : parsed.items || [];
+        const meta = Array.isArray(parsed) ? {} : (parsed.meta || {});
+
+        // If meta contains tulakAmount/tulakWeight or percents, show them at top
+        if (meta && (meta.tulakAmount !== undefined || meta.tulakWeight !== undefined || meta.aratPercent || meta.mandiPercent)) {
+          const tulakMetaDisplay = meta.tulakAmount !== undefined
+            ? `Tulak (₹): ${parseFloat(meta.tulakAmount).toFixed(2)}`
+            : `Tulak (Qtl): ${meta.tulakWeight || 0}`;
+          text += `Arat (%): ${meta.aratPercent || 0}  Mandi (%): ${meta.mandiPercent || 0}  ${tulakMetaDisplay}\n\n`;
+        }
+
+        items.forEach((it, idx) => {
+          text += `${idx + 1}. ${it.grainType}\n`;
+          text += `   Quantity: ${it.numberOfBags} × ${it.weightPerBag}kg => ${parseFloat(it.quantityQuintal).toFixed(2)} Quintal\n`;
+          text += `   Rate: ₹${parseFloat(it.pricePerQuintal).toFixed(2)}/qt   Amount: ₹${parseFloat(it.amount).toFixed(2)}\n`;
+          if (it.arat || it.tulak || it.mandi) {
+            text += `   Arat: ₹${(it.arat || 0).toFixed(2)}  Tulak: ₹${(it.tulak || 0).toFixed(2)}  Mandi: ₹${(it.mandi || 0).toFixed(2)}\n`;
+          }
+          text += `\n`;
+        });
+      } catch (e) {
+        console.warn('Failed to parse BillOfSupplyItems payload', e);
+        text += `${txn.grainType}\n`;
+        text += `${txn.quantity.toFixed(2)} Quintal\n\n`;
+      }
+    } else if (txn.description && txn.description.includes('@')) {
+      // Support descriptions that may omit the grain type (e.g. ": 9 bags × 50kg @ ...")
+      let grainType = txn.grainType;
+      let bags = '';
+      let weight = '';
+      let extra = '';
+      let price = txn.ratePerQuintal;
+
+      if (txn.description.startsWith('BillOfSupplyItems::')) {
+        try {
+          const payload = JSON.parse(decodeURIComponent(txn.description.slice(19)));
+          const item = payload.items[0];
+          if (item) {
+            grainType = item.grainType || grainType;
+            bags = item.numberOfBags || '';
+            weight = item.weightPerBag || '';
+            price = item.pricePerQuintal || price;
+          }
+        } catch (e) {
+          console.warn('Failed to parse Normal BOS payload for share', e);
+        }
+      } else {
+        const match = txn.description.match(/(?:([^:]+):)?\s*(\d+)\s*bags\s*(?:x|×)\s*([\d.]+)kg(?:\s*\+\s*([\d.]+)kg)?\s*@\s*₹([\d.]+)\/qt/i);
+        if (match) {
+          grainType = match[1] ? match[1].trim() : grainType;
+          bags = match[2];
+          weight = match[3];
+          extra = match[4] || '';
+          price = parseFloat(match[5]);
+        }
+      }
+
+      grainType = grainType || 'N/A';
+      if (bags && weight) {
         const extraWeight = extra ? parseFloat(extra) : 0;
         const totalWeight = ((parseFloat(bags) * parseFloat(weight) + extraWeight) / 100).toFixed(2);
-        text += `${grainType.trim()}:\n`;
+        text += `${grainType}:\n`;
         text += `Quantity:                      ${bags} × ${weight}${extra ? ' + ' + extra : ''}\n`;
         text += `                               ${totalWeight} Quintal × ₹${price}\n\n`;
+      } else {
+        text += `${grainType}\n`;
+        text += `${txn.quantity.toFixed(2)} Quintal\n\n`;
       }
     } else {
       text += `${txn.grainType}\n`;
@@ -353,36 +415,120 @@ export const SellTransactionReceiptScreen: React.FC<any> = ({route, navigation})
           <Text style={styles.sectionTitle}>Grain Details</Text>
           <View style={styles.divider} />
           
-          {transaction.description && transaction.description.includes('@') ? (
-            // Parse grain details from description
+          {transaction.description && transaction.description.startsWith('BillOfSupplyItems::') ? (
             (() => {
-              const match = transaction.description.match(/([^:]+):\s*(\d+)\s*bags\s*×\s*([\d.]+)kg(?:\s*\+\s*([\d.]+)kg)?\s*@\s*₹([\d.]+)\/qt/);
-              if (match) {
-                const [, grainType, bags, weight, extra, price] = match;
-                const extraWeight = extra ? parseFloat(extra) : 0;
-                const totalWeight = ((parseFloat(bags) * parseFloat(weight) + extraWeight) / 100).toFixed(2);
+              try {
+                const payload = decodeURIComponent(transaction.description.replace('BillOfSupplyItems::', ''));
+                const parsed = JSON.parse(payload) as any;
+                const items = Array.isArray(parsed) ? parsed : parsed.items || [];
+                const meta = Array.isArray(parsed) ? {} : (parsed.meta || {});
+                return (
+                  <View>
+                    {items.map((it: any, idx: number) => (
+                      <View key={`${transaction.id}-item-${idx}`} style={styles.grainItem}>
+                        <Text style={styles.grainLabel}>{idx + 1}. {it.grainType}</Text>
+                        <View style={styles.row}>
+                          <Text style={styles.label}>Bags:</Text>
+                          <Text style={styles.value}>{it.numberOfBags} × {it.weightPerBag}kg</Text>
+                        </View>
+                        <View style={styles.row}>
+                          <Text style={styles.label}>Quantity (Qtl):</Text>
+                          <Text style={styles.value}>{parseFloat(it.quantityQuintal).toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.row}>
+                          <Text style={styles.label}>Rate/Qt:</Text>
+                          <Text style={styles.value}>₹{parseFloat(it.pricePerQuintal).toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.row}>
+                          <Text style={styles.label}>Amount:</Text>
+                          <Text style={styles.value}>₹{parseFloat(it.amount).toFixed(2)}</Text>
+                        </View>
+                        {/* Per-item additions if present */}
+                        {(it.arat || it.tulak || it.mandi) && (
+                          <View style={{marginTop: Spacing.xs}}>
+                            <View style={styles.row}>
+                              <Text style={styles.label}>Arat:</Text>
+                              <Text style={styles.value}>₹{(it.arat || 0).toFixed(2)}</Text>
+                            </View>
+                            <View style={styles.row}>
+                              <Text style={styles.label}>Tulak:</Text>
+                              <Text style={styles.value}>₹{(it.tulak || 0).toFixed(2)}</Text>
+                            </View>
+                            <View style={styles.row}>
+                              <Text style={styles.label}>Mandi:</Text>
+                              <Text style={styles.value}>₹{(it.mandi || 0).toFixed(2)}</Text>
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                );
+              } catch (e) {
+                console.warn('Failed to parse BillOfSupplyItems payload', e);
                 return (
                   <View style={styles.grainItem}>
-                    <Text style={styles.grainLabel}>{grainType.trim()}:</Text>
-                    <View style={styles.row}>
-                      <Text style={styles.label}>Quantity:</Text>
-                      <Text style={styles.value}>{bags} × {weight}{extra ? ' + ' + extra : ''}</Text>
-                    </View>
-                    <View style={styles.row}>
-                      <Text style={styles.label}></Text>
-                      <Text style={styles.value}>{totalWeight} Quintal × ₹{price}</Text>
-                    </View>
+                    <Text style={styles.grainLabel}>{transaction.grainType}</Text>
+                    <Text style={styles.grainDetail}>{transaction.quantity.toFixed(2)} Quintal</Text>
                   </View>
                 );
               }
-              return null;
             })()
           ) : (
-            // Simple grain details
-            <View style={styles.grainItem}>
-              <Text style={styles.grainLabel}>{transaction.grainType}</Text>
-              <Text style={styles.grainDetail}>{transaction.quantity.toFixed(2)} Quintal</Text>
-            </View>
+            // Render Normal transaction as a single-item Bill of Supply style entry
+            (() => {
+                let grainType = transaction.grainType;
+                let numberOfBags = '';
+                let weightPerBag = '';
+                let extraWeight = '';
+                let pricePerQt = transaction.ratePerQuintal;
+
+                if (transaction.description?.startsWith('BillOfSupplyItems::')) {
+                  try {
+                    const payload = JSON.parse(decodeURIComponent(transaction.description.slice(19)));
+                    const item = payload.items[0];
+                    if (item) {
+                      grainType = item.grainType || grainType;
+                      numberOfBags = item.numberOfBags || '';
+                      weightPerBag = item.weightPerBag || '';
+                      pricePerQt = item.pricePerQuintal || pricePerQt;
+                    }
+                  } catch (e) {
+                    console.warn('Failed to parse Normal BOS payload', e);
+                  }
+                } else {
+                  // Try to parse detailed bags info from description. Allow optional grain type (some records start with ": 9 bags...")
+                  const match = transaction.description?.match(/(?:([^:]+):)?\s*(\d+)\s*bags\s*(?:x|×)\s*([\d.]+)kg(?:\s*\+\s*([\d.]+)kg)?\s*@\s*₹([\d.]+)\/qt/i);
+                  if (match) {
+                    grainType = match[1] ? match[1].trim() : grainType;
+                    numberOfBags = match[2];
+                    weightPerBag = match[3];
+                    extraWeight = match[4] || '';
+                    pricePerQt = parseFloat(match[5]);
+                  }
+                }
+
+                grainType = grainType || 'N/A';
+                const bagsDisplay = numberOfBags && weightPerBag ? `${numberOfBags} × ${weightPerBag}kg${extraWeight ? ' + ' + extraWeight + 'kg' : ''}` : '';
+                const totalQtl = Number(transaction.quantity).toFixed(2);
+
+              return (
+                <View style={styles.grainItem}>
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Grain Type:</Text>
+                    <Text style={styles.value}>{grainType}</Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Bags:</Text>
+                    <Text style={styles.value}>{bagsDisplay || '-'}</Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Text style={styles.label}>Weight:</Text>
+                    <Text style={styles.value}>{totalQtl} Qtl</Text>
+                  </View>
+                </View>
+              );
+            })()
           )}
         </View>
 

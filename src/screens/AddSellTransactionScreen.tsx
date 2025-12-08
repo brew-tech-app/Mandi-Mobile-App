@@ -77,6 +77,8 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
       pricePerQuintal: '',
     }
   ]);
+  // When multiple transactions are present we can ask Grain Type once
+  const [multiGrainType, setMultiGrainType] = useState('');
   
   // Fees & Charges
   const [commissionPercent, setCommissionPercent] = useState('');
@@ -84,7 +86,9 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
   
   // Bill of Supply Charges (for Merchant only)
   const [aratPercent, setAratPercent] = useState('');
-  const [tulak, setTulak] = useState('');
+  // Tulak: editable monetary amount (defaults to ₹1 per Quintal * total weight)
+  const [tulakAmount, setTulakAmount] = useState('');
+  const [mandiPercent, setMandiPercent] = useState('1.5');
   
   const [loading, setLoading] = useState(false);
   const [merchantRepository, setMerchantRepository] = useState<MerchantRepository | null>(null);
@@ -93,6 +97,14 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
   useEffect(() => {
     initializeRepositories();
   }, []);
+
+  // When user types a grain type in the shared `multiGrainType` field,
+  // reflect it into individual grain transaction entries so saved
+  // transactions have the correct `grainType` value.
+  useEffect(() => {
+    if (!multiGrainType) return;
+    setGrainTransactions(prev => prev.map(txn => ({ ...txn, grainType: multiGrainType })));
+  }, [multiGrainType]);
 
   const initializeRepositories = async () => {
     const db = await DatabaseService.initDatabase();
@@ -109,16 +121,12 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
     }
   }, [phoneNumber, partyType]);
 
-  // Auto-fill Tulak with weight for Bill of Supply
+  // Tulak is computed dynamically; keep editable tulakAmount synced when weight changes
   useEffect(() => {
-    if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
-      const weight = calculateTotalWeight();
-      if (weight > 0) {
-        setTulak(weight.toFixed(2));
-      }
-    }
-  }, [grainTransactions, billType, partyType]);
-
+    const total = calculateTotalWeight();
+    // default tulak rate is ₹1 per Qtl
+    setTulakAmount((total * 1).toFixed(2));
+  }, [grainTransactions]);
   const resetPartyDetails = () => {
     setPartyExists(false);
     setShowPartyFields(false);
@@ -204,18 +212,20 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
   const calculateMandiShulk = (): number => {
     if (billType !== 'BILL_OF_SUPPLY' || partyType !== 'MERCHANT') return 0;
     const grossAmount = calculateGrossAmount();
-    return parseFloat(((1.5 * grossAmount) / 100).toFixed(2));
+    const mandi = parseFloat(mandiPercent) || 0;
+    return parseFloat(((mandi * grossAmount) / 100).toFixed(2));
   };
 
   const calculateNetReceivable = (): number => {
     const grossAmount = calculateGrossAmount();
     
-    if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
-      // Bill of Supply: Gross + Arat + Tulak + Mandi Shulk
+      if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
+      // Bill of Supply: Gross + Arat + Tulak(monetary) + Mandi Shulk
       const arat = calculateArat();
-      const tulakAmount = parseFloat(tulak) || 0;
+      // Tulak is editable monetary amount (falls back to ₹1 per Qtl * total weight)
+      const tulakMonetary = parseFloat(tulakAmount) || (calculateTotalWeight() * 1);
       const mandiShulk = calculateMandiShulk();
-      return parseFloat((grossAmount + arat + tulakAmount + mandiShulk).toFixed(2));
+      return parseFloat((grossAmount + arat + tulakMonetary + mandiShulk).toFixed(2));
     } else {
       // Normal: Gross + Commission + Labour
       const commission = calculateCommission();
@@ -280,13 +290,15 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
       return false;
     }
     
-    // Validate each grain transaction
+    // Validate each grain transaction (or use multiGrainType when multiple)
+    // Require a grain type for all cases (single or multiple items)
+    if (!multiGrainType.trim()) {
+      Alert.alert('Validation Error', `Please enter grain type for the transaction(s)`);
+      return false;
+    }
+
     for (let i = 0; i < grainTransactions.length; i++) {
       const txn = grainTransactions[i];
-      if (!txn.grainType.trim()) {
-        Alert.alert('Validation Error', `Please enter grain type for transaction ${i + 1}`);
-        return false;
-      }
       if (!txn.numberOfBags || parseFloat(txn.numberOfBags) <= 0) {
         Alert.alert('Validation Error', `Please enter valid number of bags for transaction ${i + 1}`);
         return false;
@@ -339,6 +351,12 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
       const totalWeight = calculateTotalWeight();
       const grossAmount = calculateGrossAmount();
       const netReceivable = calculateNetReceivable();
+      // Precompute Bill of Supply related values (tulak is weight in Qtl)
+          const arat = calculateArat();
+          const mandiShulk = calculateMandiShulk();
+          // Tulak is a monetary amount entered by user (₹)
+          // Use editable tulakAmount, fallback to ₹1 per Quintal
+          const tulakMonetaryTotal = parseFloat(tulakAmount) || (totalWeight * 1);
 
       const buyerName = partyType === 'MERCHANT' ? firmName.trim() : customerName.trim();
       
@@ -347,11 +365,8 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
       let labour = 0;
 
       if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
-        // Bill of Supply charges
-        const arat = calculateArat();
-        const tulakAmount = parseFloat(tulak) || 0;
-        const mandiShulk = calculateMandiShulk();
-        commission = arat + tulakAmount + mandiShulk; // Store total charges in commission
+        // Bill of Supply charges (tulak input is weight in Qtl -> convert to monetary)
+        commission = arat + tulakMonetaryTotal + mandiShulk; // Store total additions in commission field
         labour = 0;
       } else {
         // Normal transaction charges
@@ -359,44 +374,105 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
         labour = parseFloat(labourCharge) || 0;
       }
 
-      // Create a transaction for each grain type
-      for (const txn of grainTransactions) {
-        const txnWeight = calculateTransactionWeight(txn);
-        const txnAmount = calculateTransactionAmount(txn);
-        
-        // Calculate proportional charges for this transaction
-        const txnCommission = grossAmount > 0 ? (commission * txnAmount) / grossAmount : 0;
-        const txnLabour = grossAmount > 0 ? (labour * txnAmount) / grossAmount : 0;
-        const txnNetReceivable = txnAmount + txnCommission + txnLabour;
+      // If this is Bill of Supply for a merchant, save as a single receipt containing all items
+      if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
+        // Build items array with proportional charges per item
 
-        let description = '';
-        if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
-          const arat = calculateArat();
-          const tulakAmount = parseFloat(tulak) || 0;
-          const mandiShulk = calculateMandiShulk();
+        const items = grainTransactions.map(txn => {
+          const txnWeight = calculateTransactionWeight(txn);
+          const txnAmount = calculateTransactionAmount(txn);
           const txnArat = grossAmount > 0 ? (arat * txnAmount) / grossAmount : 0;
-          const txnTulak = grossAmount > 0 ? (tulakAmount * txnAmount) / grossAmount : 0;
+          // Distribute editable tulak amount proportionally by item weight
+          const txnTulak = totalWeight > 0 ? (txnWeight / totalWeight) * tulakMonetaryTotal : 0;
           const txnMandi = grossAmount > 0 ? (mandiShulk * txnAmount) / grossAmount : 0;
-          description = `Bill of Supply: ${txn.grainType} - ${txn.numberOfBags} bags × ${txn.weightPerBag}kg @ ₹${txn.pricePerQuintal}/qt | Arat: ₹${txnArat.toFixed(2)}, Tulak: ₹${txnTulak.toFixed(2)}, Mandi Shulk: ₹${txnMandi.toFixed(2)}`;
-        } else {
-          description = `${txn.grainType}: ${txn.numberOfBags} bags × ${txn.weightPerBag}kg @ ₹${txn.pricePerQuintal}/qt`;
-        }
+          return {
+            grainType: multiGrainType,
+            numberOfBags: txn.numberOfBags,
+            weightPerBag: txn.weightPerBag,
+            pricePerQuintal: txn.pricePerQuintal,
+            quantityQuintal: txnWeight,
+            amount: parseFloat(txnAmount.toFixed(2)),
+            arat: parseFloat(txnArat.toFixed(2)),
+            tulak: parseFloat(txnTulak.toFixed(2)),
+            mandi: parseFloat(txnMandi.toFixed(2)),
+          };
+        });
+
+        // Encode items and meta as URI component to safely store in description
+        const payload = {
+          items,
+          // meta keeps tulak as monetary amount (tulakAmount) for clarity
+          meta: {
+            tulakAmount: tulakMonetaryTotal,
+            aratPercent: parseFloat(aratPercent) || 0,
+            mandiPercent: parseFloat(mandiPercent) || 0,
+          },
+        };
+        const itemsPayload = encodeURIComponent(JSON.stringify(payload));
+        const description = `BillOfSupplyItems::${itemsPayload}`;
 
         await TransactionService.createSellTransaction({
           buyerName,
           buyerPhone: phoneNumber,
-          grainType: txn.grainType,
-          quantity: txnWeight,
-          ratePerQuintal: parseFloat(txn.pricePerQuintal) || 0,
-          totalAmount: txnAmount,
+          grainType: multiGrainType || 'MULTI',
+          quantity: totalWeight,
+          ratePerQuintal: totalWeight > 0 ? parseFloat((grossAmount / totalWeight).toFixed(2)) : 0,
+          totalAmount: grossAmount,
           receivedAmount: 0,
-          balanceAmount: txnNetReceivable,
+          balanceAmount: netReceivable,
           paymentStatus: PaymentStatus.PENDING,
-          commissionAmount: txnCommission,
-          labourCharges: txnLabour,
+          commissionAmount: commission, // store total additions in commission field
+          labourCharges: labour,
           date: transactionDate.toISOString(),
           description,
         });
+      } else {
+        // Create a transaction for each grain type (normal behavior)
+        for (const txn of grainTransactions) {
+          const txnWeight = calculateTransactionWeight(txn);
+          const txnAmount = calculateTransactionAmount(txn);
+          
+          // Calculate proportional charges for this transaction
+          const txnCommission = grossAmount > 0 ? (commission * txnAmount) / grossAmount : 0;
+          const txnLabour = grossAmount > 0 ? (labour * txnAmount) / grossAmount : 0;
+          const txnNetReceivable = txnAmount + txnCommission + txnLabour;
+
+          let description = '';
+          if (billType === 'BILL_OF_SUPPLY' && partyType === 'MERCHANT') {
+            const txnArat = grossAmount > 0 ? (arat * txnAmount) / grossAmount : 0;
+            const txnTulak = grossAmount > 0 ? (tulakMonetaryTotal * txnAmount) / grossAmount : 0;
+            const txnMandi = grossAmount > 0 ? (mandiShulk * txnAmount) / grossAmount : 0;
+            description = `Bill of Supply: ${txn.grainType} - ${txn.numberOfBags} bags × ${txn.weightPerBag}kg @ ₹${txn.pricePerQuintal}/qt | Arat: ₹${txnArat.toFixed(2)}, Tulak: ₹${txnTulak.toFixed(2)}, Mandi Shulk: ₹${txnMandi.toFixed(2)}`;
+          } else {
+            // For Normal bill type, store grain details as a single-item BillOfSupplyItems payload
+            const item = {
+              grainType: txn.grainType,
+              numberOfBags: txn.numberOfBags,
+              weightPerBag: txn.weightPerBag,
+              pricePerQuintal: txn.pricePerQuintal,
+              quantityQuintal: txnWeight,
+              amount: parseFloat(txnAmount.toFixed(2)),
+            };
+            const payload = { items: [item], meta: { normal: true } };
+            description = `BillOfSupplyItems::${encodeURIComponent(JSON.stringify(payload))}`;
+          }
+
+          await TransactionService.createSellTransaction({
+            buyerName,
+            buyerPhone: phoneNumber,
+            grainType: txn.grainType,
+            quantity: txnWeight,
+            ratePerQuintal: parseFloat(txn.pricePerQuintal) || 0,
+            totalAmount: txnAmount,
+            receivedAmount: 0,
+            balanceAmount: txnNetReceivable,
+            paymentStatus: PaymentStatus.PENDING,
+            commissionAmount: txnCommission,
+            labourCharges: txnLabour,
+            date: transactionDate.toISOString(),
+            description,
+          });
+        }
       }
 
       Alert.alert(
@@ -421,6 +497,11 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
   const grossAmount = calculateGrossAmount();
   const commission = calculateCommission();
   const netReceivable = calculateNetReceivable();
+  const avgRateDisplay = totalWeight > 0 ? grossAmount / totalWeight : 0;
+  // Tulak display: show editable tulakAmount or default (₹1 per Qtl * total weight)
+  const tulakMonetaryDisplay = parseFloat(tulakAmount) || (totalWeight * 1);
+  // Total additions: Arat + Tulak + Mandi Shulk
+  const totalAddition = parseFloat((calculateArat() + tulakMonetaryDisplay + calculateMandiShulk()).toFixed(2));
 
   return (
     <KeyboardAvoidingView
@@ -671,6 +752,18 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
             <Text style={styles.sectionTitle}>🌾 Grain Details</Text>
           </View>
           
+          {/* Grain Type (applies to all items) - single control for single or multi items */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Grain Type *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g., Wheat, Rice, Maize"
+              placeholderTextColor={Colors.textSecondary}
+              value={multiGrainType}
+              onChangeText={setMultiGrainType}
+            />
+          </View>
+
           {grainTransactions.map((transaction, index) => (
             <View key={transaction.id} style={styles.transactionCard}>
               <View style={styles.transactionHeader}>
@@ -684,16 +777,7 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
                 )}
               </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Grain Type *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g., Wheat, Rice, Maize"
-                  placeholderTextColor={Colors.textSecondary}
-                  value={transaction.grainType}
-                  onChangeText={(value) => updateGrainTransaction(transaction.id, 'grainType', value)}
-                />
-              </View>
+              {/* Grain Type is provided above (multiGrainType) and applied to each item */}
 
               <View style={styles.row}>
                 <View style={[styles.inputGroup, styles.halfWidth]}>
@@ -740,7 +824,7 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
                 </View>
                 <View style={styles.calculatedRow}>
                   <Text style={styles.calculatedLabel}>Amount:</Text>
-                  <Text style={styles.calculatedValue}>₹{calculateTransactionAmount(transaction).toFixed(0)}</Text>
+                  <Text style={styles.calculatedValue}>₹{calculateTransactionAmount(transaction).toFixed(2)}</Text>
                 </View>
               </View>
             </View>
@@ -752,14 +836,14 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
             <Text style={styles.addTransactionButtonText}>+ Add Transaction</Text>
           </TouchableOpacity>
 
-          <View style={[styles.calculatedCard, styles.totalCard]}>
+            <View style={[styles.calculatedCard, styles.totalCard]}>
             <View style={styles.calculatedRow}>
               <Text style={styles.calculatedLabel}>Total Weight (Quintal):</Text>
               <Text style={styles.calculatedValue}>{calculateTotalWeight().toFixed(2)} Qtl</Text>
             </View>
             <View style={styles.calculatedRow}>
               <Text style={styles.calculatedLabel}>Gross Amount:</Text>
-              <Text style={styles.calculatedValue}>₹{grossAmount.toFixed(0)}</Text>
+              <Text style={styles.calculatedValue}>₹{grossAmount.toFixed(2)}</Text>
             </View>
             <View style={styles.calculatedRow}>
               <Text style={styles.calculatedLabel}>Average Price/Quintal:</Text>
@@ -789,20 +873,31 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
                 />
               </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Tulak (₹)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter tulak"
-                  placeholderTextColor={Colors.textSecondary}
-                  value={tulak}
-                  onChangeText={setTulak}
-                  keyboardType="decimal-pad"
-                />
-                <Text style={styles.hint}>Weight (Quintal): {calculateTotalWeight().toFixed(2)} Qtl</Text>
-              </View>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Tulak (₹)</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder={`${(totalWeight * 1).toFixed(2)}`}
+                        placeholderTextColor={Colors.textSecondary}
+                        value={tulakAmount}
+                        onChangeText={setTulakAmount}
+                        keyboardType="decimal-pad"
+                      />
+                      <Text style={styles.hint}>Updates automatically when weight changes</Text>
+                    </View>
 
-              <View style={styles.amountBreakdown}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>Mandi Shulk (%)</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="1.5"
+                        placeholderTextColor={Colors.textSecondary}
+                        value={mandiPercent}
+                        onChangeText={setMandiPercent}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <View style={styles.amountBreakdown}>
                 <View style={styles.breakdownRow}>
                   <Text style={styles.breakdownLabel}>Gross Amount:</Text>
                   <Text style={styles.breakdownValue}>₹ {grossAmount.toFixed(2)}</Text>
@@ -813,11 +908,15 @@ export const AddSellTransactionScreen: React.FC<any> = ({navigation}) => {
                 </View>
                 <View style={styles.breakdownRow}>
                   <Text style={styles.breakdownLabel}>Tulak:</Text>
-                  <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {parseFloat(tulak || '0').toFixed(2)}</Text>
+                  <Text style={[styles.breakdownValue, styles.additionValue]}>₹{tulakMonetaryDisplay.toFixed(2)}</Text>
                 </View>
                 <View style={styles.breakdownRow}>
-                  <Text style={styles.breakdownLabel}>Mandi Shulk (1.5%):</Text>
+                  <Text style={styles.breakdownLabel}>Mandi Shulk ({parseFloat(mandiPercent || '0').toFixed(2)}%):</Text>
                   <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {calculateMandiShulk().toFixed(2)}</Text>
+                </View>
+                <View style={styles.breakdownRow}>
+                  <Text style={styles.breakdownLabel}>Total Addition:</Text>
+                  <Text style={[styles.breakdownValue, styles.additionValue]}>+ ₹ {totalAddition.toFixed(2)}</Text>
                 </View>
                 <View style={[styles.breakdownRow, styles.totalRow]}>
                   <Text style={styles.totalLabel}>Net Receivable:</Text>
