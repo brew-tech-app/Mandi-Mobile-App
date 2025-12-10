@@ -68,6 +68,7 @@ export class DatabaseService {
       await this.database.executeSql(TableSchemas.SELL_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.LEND_TRANSACTIONS);
       await this.database.executeSql(TableSchemas.EXPENSE_TRANSACTIONS);
+      await this.database.executeSql(TableSchemas.EXPENSES);
       await this.database.executeSql(PaymentTableSchema);
       
       // Run migrations

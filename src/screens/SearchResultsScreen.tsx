@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity }
 import { Colors, Typography, Spacing, BorderRadius } from '../constants/theme';
 import TransactionService from '../services/TransactionService';
 import { BuyTransaction, SellTransaction, LendTransaction } from '../models/Transaction';
+import { formatDateTime } from '../utils/helpers';
 
 export const SearchResultsScreen: React.FC<any> = ({ navigation, route }) => {
   const phoneNumber = route.params?.phoneNumber || '';
@@ -49,7 +50,7 @@ export const SearchResultsScreen: React.FC<any> = ({ navigation, route }) => {
         <Text style={styles.name}>{item.supplierName || item.buyerName || item.personName}</Text>
         <Text style={styles.phone}>{item.supplierPhone || item.buyerPhone || item.personPhone}</Text>
         <Text style={styles.amount}>Amount: ₹{item.totalAmount || item.amount || 0}</Text>
-        <Text style={styles.date}>Date: {item.date}</Text>
+        <Text style={styles.date}>Date: {formatDateTime(item.date)}</Text>
       </TouchableOpacity>
     );
   };

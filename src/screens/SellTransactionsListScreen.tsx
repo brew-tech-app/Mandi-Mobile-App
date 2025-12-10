@@ -142,28 +142,35 @@ export const SellTransactionsListScreen: React.FC<any> = ({navigation, route}) =
         </View>
         <View style={styles.headerRight}>
           {(() => {
-            // Determine badge label for BillOfSupplyItems payloads.
+            // Determine badge label for transactions
             const desc = item.description || '';
             if (desc.startsWith('BillOfSupplyItems::')) {
               try {
                 const payload = JSON.parse(decodeURIComponent(desc.replace('BillOfSupplyItems::', '')));
                 const items = Array.isArray(payload) ? payload : (payload.items || []);
                 const meta = Array.isArray(payload) ? {} : (payload.meta || {});
-                const isNormalSingle = !!meta.normal || (items.length === 1 && meta.normal === true);
-                const showBos = !isNormalSingle && items.length > 1;
+                const isNormal = !!meta.normal;
+                const showBos = !isNormal; // Show BOS if not marked as normal
                 return (
                   <View style={[styles.typeBadge, showBos ? styles.bosBadge : styles.normalBadge]}>
                     <Text style={styles.typeBadgeText}>{showBos ? 'Bill of Supply' : 'Normal'}</Text>
                   </View>
                 );
               } catch (e) {
-                // Fallback when payload parsing fails
+                // Fallback when payload parsing fails - assume BOS for encoded format
                 return (
                   <View style={[styles.typeBadge, styles.bosBadge]}>
                     <Text style={styles.typeBadgeText}>Bill of Supply</Text>
                   </View>
                 );
               }
+            } else if (desc.startsWith('Bill of Supply:')) {
+              // Traditional Bill of Supply format
+              return (
+                <View style={[styles.typeBadge, styles.bosBadge]}>
+                  <Text style={styles.typeBadgeText}>Bill of Supply</Text>
+                </View>
+              );
             }
             return (
               <View style={[styles.typeBadge, styles.normalBadge]}>
