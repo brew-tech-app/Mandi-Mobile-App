@@ -1,5 +1,5 @@
 import auth, {FirebaseAuthTypes} from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
+import firestore, {collection, doc, getDoc, setDoc} from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {User} from '../models/User';
 
@@ -17,19 +17,16 @@ class AuthService {
     try {
       console.log('Checking GSTIN in Firestore:', gstin);
       
-      // Check if Firestore is available
-      const firestoreInstance = firestore();
-      if (!firestoreInstance) {
+      // Get Firestore instance and read document using modular API
+      const db = firestore();
+      if (!db) {
         console.warn('Firestore not available, skipping GSTIN check');
         return false;
       }
 
-      const snapshot = await firestoreInstance
-        .collection('gstins')
-        .doc(gstin)
-        .get();
-      
-      const exists = typeof snapshot.exists === 'function' ? snapshot.exists() : !!snapshot.exists;
+      const gstinDocRef = doc(collection(db, 'gstins'), gstin);
+      const snapshot = await getDoc(gstinDocRef);
+      const exists = !!(snapshot && snapshot.exists);
       console.log('GSTIN check completed. Exists:', exists);
       return exists;
     } catch (error: any) {
@@ -80,15 +77,18 @@ class AuthService {
       // Store GSTIN in Firestore to prevent duplicates
       if (gstin) {
         try {
-          await firestore()
-            .collection('gstins')
-            .doc(gstin)
-            .set({
+          try {
+            const db = firestore();
+            await setDoc(doc(collection(db, 'gstins'), gstin), {
               uid: userCredential.user.uid,
               email: email,
               firmName: firmName,
               createdAt: new Date().toISOString(),
             });
+          } catch (error) {
+            // continue
+            throw error;
+          }
         } catch (error) {
           console.warn('Failed to store GSTIN in Firestore:', error);
           // Continue with signup even if GSTIN storage fails
@@ -97,10 +97,9 @@ class AuthService {
 
       // Store user profile in Firestore
       try {
-        await firestore()
-          .collection('users')
-          .doc(userCredential.user.uid)
-          .set({
+        try {
+          const db = firestore();
+          await setDoc(doc(collection(db, 'users'), userCredential.user.uid), {
             email: user.email,
             displayName: user.displayName,
             firmName: user.firmName,
@@ -108,6 +107,10 @@ class AuthService {
             phoneNumber: user.phoneNumber,
             createdAt: user.createdAt,
           });
+        } catch (error) {
+          // continue
+          throw error;
+        }
       } catch (error) {
         console.warn('Failed to store user profile in Firestore:', error);
         // Continue with signup even if Firestore storage fails
@@ -278,14 +281,12 @@ class AuthService {
       // If existing user, try to fetch profile from Firestore
       if (!isNewUser) {
         try {
-          const userDoc = await firestore()
-            .collection('users')
-            .doc(firebaseUser.uid)
-            .get();
-          
-          const exists = typeof userDoc.exists === 'function' ? userDoc.exists() : !!userDoc.exists;
+          const db = firestore();
+          const userDocRef = doc(collection(db, 'users'), firebaseUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          const exists = !!(userDoc && userDoc.exists());
           if (exists) {
-            const userData = userDoc.data();
+            const userData = userDoc.data() as any;
             user = {
               ...user,
               displayName: userData?.displayName || user.displayName,
@@ -342,30 +343,34 @@ class AuthService {
 
     // Update Firestore
     try {
-      await firestore()
-        .collection('users')
-        .doc(firebaseUser.uid)
-        .set({
-          email: currentUser.email || '',
-          displayName: updates.displayName || currentUser.displayName,
-          firmName: updates.firmName || null,
-          gstin: updates.gstin || null,
-          phoneNumber: updates.phoneNumber || currentUser.phoneNumber,
-          createdAt: currentUser.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }, {merge: true});
+        try {
+          const db = firestore();
+          await setDoc(doc(collection(db, 'users'), firebaseUser.uid), {
+            email: currentUser.email || '',
+            displayName: updates.displayName || currentUser.displayName,
+            firmName: updates.firmName || null,
+            gstin: updates.gstin || null,
+            phoneNumber: updates.phoneNumber || currentUser.phoneNumber,
+            createdAt: currentUser.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }, {merge: true} as any);
+        } catch (error) {
+          throw error;
+        }
 
       // Store GSTIN if provided
       if (updates.gstin) {
-        await firestore()
-          .collection('gstins')
-          .doc(updates.gstin)
-          .set({
+        try {
+          const db = firestore();
+          await setDoc(doc(collection(db, 'gstins'), updates.gstin || ''), {
             uid: firebaseUser.uid,
             email: currentUser.email,
             firmName: updates.firmName,
             createdAt: new Date().toISOString(),
           });
+        } catch (error) {
+          console.warn('Failed to store GSTIN after profile update:', error);
+        }
       }
     } catch (error) {
       console.warn('Failed to update user profile in Firestore:', error);

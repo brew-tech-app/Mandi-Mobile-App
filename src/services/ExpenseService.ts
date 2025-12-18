@@ -35,12 +35,12 @@ class ExpenseService {
       });
 
       // Deduct expense from cash balance
-      console.log(`Deducting expense from cash balance: ₹${data.amount}`);
+      console.log(`ExpenseService: Creating expense with amount=${data.amount}, type=${typeof data.amount}`);
       const newBalance = await CashBalanceService.onExpensePayment(
         data.notes.substring(0, 50), // Use first 50 chars of notes as expense name
         data.amount
       );
-      console.log(`New cash balance after expense: ₹${newBalance}`);
+      console.log(`ExpenseService: New cash balance after expense: ₹${newBalance}`);
 
       return expense;
     } catch (error) {

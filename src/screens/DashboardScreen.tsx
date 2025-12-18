@@ -8,6 +8,7 @@ import {FloatingActionButton} from '../components/FloatingActionButton';
 import {Colors, Typography, Spacing, BorderRadius, Shadow} from '../constants/theme';
 import TransactionService, {StockByGrainType} from '../services/TransactionService';
 import NetInfo from '@react-native-community/netinfo';
+import {useFocusEffect} from '@react-navigation/native';
 import {DashboardSummary} from '../models/Transaction';
 import {formatCurrency, formatQuantity, formatDate} from '../utils/helpers';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -207,6 +208,17 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
     loadSummaryByTab();
   }, [selectedTab, selectedDate]);
 
+  // Refresh cash balance when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      const refreshBalance = async () => {
+        const balance = await CashBalanceService.getCurrentBalance();
+        setCurrentCashBalance(balance);
+      };
+      refreshBalance();
+    }, [])
+  );
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadDashboardData();
@@ -268,68 +280,72 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
     <View style={styles.wrapper}>
       <StatusBar barStyle="light-content" backgroundColor={Colors.primary} />
       
-      {/* Header Section with Gradient */}
-      <View style={styles.headerGradient}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Grain Ledger</Text>
-          <Text style={styles.headerSubtitle}>HOME</Text>
-        </View>
-        <View style={styles.headerRightIndicator}>
-          {/* small online indicator: green circle = online, red = offline, hidden if unknown */}
-          {isOnline !== null && (
-            <View style={[styles.onlineDot, {backgroundColor: isOnline ? Colors.success : Colors.error}]} />
-          )}
-        </View>
-        
-        {/* Search Bar - Positioned at bottom of header */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search transactions by Phone Number..."
-              placeholderTextColor={Colors.textSecondary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              keyboardType="phone-pad"
-              onSubmitEditing={() => {
-                if (searchQuery.trim()) {
-                  navigation.navigate('SearchResults', {
-                    phoneNumber: searchQuery.trim()
-                  });
-                  setSearchQuery('');
-                }
-              }}
-              returnKeyType="search"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setSearchQuery('')}
-                style={styles.clearButton}>
-                <Text style={styles.clearButtonText}>✕</Text>
-              </TouchableOpacity>
+      {/* Fixed Header Section with Balance Card */}
+      <View style={styles.fixedHeaderContainer}>
+        {/* Header Section with Gradient */}
+        <View style={styles.headerGradient}>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Grain Ledger</Text>
+            <Text style={styles.headerSubtitle}>HOME</Text>
+          </View>
+          <View style={styles.headerRightIndicator}>
+            {/* small online indicator: green circle = online, red = offline, hidden if unknown */}
+            {isOnline !== null && (
+              <View style={[styles.onlineDot, {backgroundColor: isOnline ? Colors.success : Colors.error}]} />
             )}
           </View>
+          
+          {/* Search Bar - Positioned at bottom of header */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchBar}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search transactions by Phone Number..."
+                placeholderTextColor={Colors.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                keyboardType="phone-pad"
+                onSubmitEditing={() => {
+                  if (searchQuery.trim()) {
+                    navigation.navigate('SearchResults', {
+                      phoneNumber: searchQuery.trim()
+                    });
+                    setSearchQuery('');
+                  }
+                }}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setSearchQuery('')}
+                  style={styles.clearButton}>
+                  <Text style={styles.clearButtonText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* Current Balance Card - Fixed below header */}
+        <View style={styles.balanceCardContainer}>
+          <TouchableOpacity 
+            style={styles.balanceCard}
+            onPress={() => setIsBalanceModalVisible(true)}
+            activeOpacity={0.8}>
+            <Text style={styles.balanceLabel}>Current Cash Balance</Text>
+            <Text style={styles.balanceSubLabel}>(Tap to update)</Text>
+            <View style={styles.balanceAmountContainer}>
+              <Text style={styles.rupeeSymbol}>₹</Text>
+              <Text style={styles.balanceAmount}>{currentCashBalance.toFixed(2)}</Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Current Balance Card - Detached from header */}
-      <View style={styles.balanceCardContainer}>
-        <TouchableOpacity 
-          style={styles.balanceCard}
-          onPress={() => setIsBalanceModalVisible(true)}
-          activeOpacity={0.8}>
-          <Text style={styles.balanceLabel}>Current Cash Balance</Text>
-          <Text style={styles.balanceSubLabel}>(Tap to update)</Text>
-          <View style={styles.balanceAmountContainer}>
-            <Text style={styles.rupeeSymbol}>₹</Text>
-            <Text style={styles.balanceAmount}>{currentCashBalance.toFixed(2)}</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
+      {/* Scrollable Content */}
       <ScrollView
-        style={styles.container}
+        style={styles.scrollContainer}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -1018,6 +1034,13 @@ export const DashboardScreen: React.FC<any> = ({navigation}) => {
 
 const styles = StyleSheet.create({
   wrapper: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  fixedHeaderContainer: {
+    backgroundColor: Colors.background,
+  },
+  scrollContainer: {
     flex: 1,
     backgroundColor: Colors.background,
   },

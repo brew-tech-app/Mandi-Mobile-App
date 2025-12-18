@@ -165,8 +165,12 @@ export class TransactionService implements ITransactionService {
       // Lazy import to avoid circular dependency
       const {default: CloudBackupService} = await import('./CloudBackupService');
       // Delete single transaction from cloud (non-blocking)
-      await CloudBackupService.deleteSingleTransaction(transactionId, user.uid);
-      console.log(`Auto-deleted transaction ${transactionId} from cloud`);
+      const deleted = await CloudBackupService.deleteSingleTransaction(transactionId, user.uid);
+      if (deleted) {
+        console.log(`Auto-deleted transaction ${transactionId} from cloud`);
+      } else {
+        console.log(`Auto-delete queued for retry: ${transactionId}`);
+      }
     } catch (error) {
       // Silently fail - transaction is already deleted locally
       console.error('Auto-delete failed (transaction removed from local DB):', error);
@@ -240,6 +244,22 @@ export class TransactionService implements ITransactionService {
   }
 
   public async deleteBuyTransaction(id: string): Promise<boolean> {
+    // Get transaction details before deleting to reverse cash balance effects
+    const transaction = await this.buyRepository.findById(id);
+    if (transaction) {
+      try {
+        // Reverse any payments made (add back to cash balance)
+        const payments = await this.paymentRepository.findByTransactionId(id);
+        const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+        if (totalPaid > 0) {
+          const currentBalance = await CashBalanceService.getCurrentBalance();
+          await CashBalanceService.setBalance(currentBalance + totalPaid);
+        }
+      } catch (err) {
+        console.error('Error reversing cash balance on buy transaction deletion:', err);
+      }
+    }
+
     const result = await this.buyRepository.delete(id);
     if (result) {
       // Delete from cloud (non-blocking)
@@ -326,6 +346,22 @@ export class TransactionService implements ITransactionService {
   }
 
   public async deleteSellTransaction(id: string): Promise<boolean> {
+    // Get transaction details before deleting to reverse cash balance effects
+    const transaction = await this.sellRepository.findById(id);
+    if (transaction) {
+      try {
+        // Reverse any payments received (deduct from cash balance)
+        const payments = await this.paymentRepository.findByTransactionId(id);
+        const totalReceived = payments.reduce((sum, p) => sum + p.amount, 0);
+        if (totalReceived > 0) {
+          const currentBalance = await CashBalanceService.getCurrentBalance();
+          await CashBalanceService.setBalance(currentBalance - totalReceived);
+        }
+      } catch (err) {
+        console.error('Error reversing cash balance on sell transaction deletion:', err);
+      }
+    }
+
     const result = await this.sellRepository.delete(id);
     if (result) {
       // Delete from cloud (non-blocking)
@@ -564,6 +600,40 @@ export class TransactionService implements ITransactionService {
   }
 
   public async deleteLendTransaction(id: string): Promise<boolean> {
+    // Get transaction details before deleting to reverse cash balance effects
+    const transaction = await this.lendRepository.findById(id);
+    if (transaction) {
+      try {
+        // Reverse initial loan amount
+        if (transaction.lendType === 'MONEY') {
+          if (transaction.personPhone) {
+            // Customer loan: money was deducted, so add back
+            await CashBalanceService.addToBalance(transaction.amount || 0, `Customer loan deleted: ${transaction.personName}`);
+          } else {
+            // Self loan: money was added, so deduct
+            await CashBalanceService.subtractFromBalance(transaction.amount || 0, `Self loan deleted: ${transaction.personName}`);
+          }
+        }
+
+        // Reverse any payments received (repayments)
+        const payments = await this.paymentRepository.findByTransactionId(id);
+        const totalRepaid = payments.reduce((sum, p) => sum + p.amount, 0);
+        if (totalRepaid > 0) {
+          if (transaction.personPhone) {
+            // Customer repayments added to cash, so deduct
+            const currentBalance = await CashBalanceService.getCurrentBalance();
+            await CashBalanceService.setBalance(currentBalance - totalRepaid);
+          } else {
+            // Self loan repayments deducted from cash, so add back
+            const currentBalance = await CashBalanceService.getCurrentBalance();
+            await CashBalanceService.setBalance(currentBalance + totalRepaid);
+          }
+        }
+      } catch (err) {
+        console.error('Error reversing cash balance on lend transaction deletion:', err);
+      }
+    }
+
     const result = await this.lendRepository.delete(id);
     if (result) {
       // Delete from cloud (non-blocking)
@@ -630,9 +700,23 @@ export class TransactionService implements ITransactionService {
     return await this.expenseRepository.updateWithTimestamp(id, data, updatedAt);
   }
 
-  public async deleteExpenseTransaction(id: string): Promise<boolean> {
+  public async deleteExpenseTransaction(id: string, propagateToCloud: boolean = true): Promise<boolean> {
+    // Ensure cash balance is adjusted when an expense is deleted (covers cloud-initiated deletes)
+    try {
+      const existing = await this.expenseRepository.findById(id);
+      if (existing) {
+        const note = (existing as any).expenseName || (existing as any).description || '';
+        await CashBalanceService.addToBalance(
+          existing.amount,
+          `Expense deleted: ${note?.toString().substring(0, 50)}`,
+        );
+      }
+    } catch (e) {
+      console.warn('Failed to adjust cash balance before deleting expense:', e);
+    }
+
     const result = await this.expenseRepository.delete(id);
-    if (result) {
+    if (result && propagateToCloud) {
       // Delete from cloud (non-blocking)
       this.autoDeleteFromCloud(id).catch(console.error);
     }

@@ -25,6 +25,7 @@ import {SearchResultsScreen} from '../screens/SearchResultsScreen';
 import {SettingsScreen} from '../screens/SettingsScreen';
 import {Colors} from '../constants/theme';
 import AuthService from '../services/AuthService';
+import CloudBackupService from '../services/CloudBackupService';
 import auth from '@react-native-firebase/auth';
 
 const Tab = createBottomTabNavigator();
@@ -253,14 +254,30 @@ export const AppNavigator = () => {
 
   useEffect(() => {
     // Subscribe to Firebase auth state changes
-    const unsubscribe = auth().onAuthStateChanged(user => {
+    const unsubscribe = auth().onAuthStateChanged(async (user) => {
+      const wasAuthenticated = isAuthenticated;
       setIsAuthenticated(!!user);
       setLoading(false);
+
+      // Handle real-time sync based on authentication state
+      if (!!user && !wasAuthenticated) {
+        // User just logged in - start real-time sync
+        try {
+          await CloudBackupService.startRealtimeSync();
+          console.log('Real-time sync started after login');
+        } catch (error) {
+          console.error('Failed to start real-time sync after login:', error);
+        }
+      } else if (!user && wasAuthenticated) {
+        // User just logged out - stop real-time sync
+        CloudBackupService.stopRealtimeSync();
+        console.log('Real-time sync stopped after logout');
+      }
     });
 
     // Cleanup subscription on unmount
     return unsubscribe;
-  }, []);
+  }, [isAuthenticated]);
 
   if (loading) {
     return (

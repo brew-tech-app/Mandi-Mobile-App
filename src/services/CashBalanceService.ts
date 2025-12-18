@@ -65,7 +65,9 @@ export class CashBalanceService {
   public static async subtractFromBalance(amount: number, reason?: string): Promise<number> {
     try {
       const currentBalance = await this.getCurrentBalance();
+      console.log(`subtractFromBalance: currentBalance=${currentBalance}, amount=${amount}, type of currentBalance=${typeof currentBalance}, type of amount=${typeof amount}`);
       const newBalance = currentBalance - amount;
+      console.log(`subtractFromBalance: newBalance=${newBalance}`);
       await this.setBalance(newBalance);
       console.log(`Subtracted ₹${amount} from balance. Reason: ${reason || 'Not specified'}`);
       return newBalance;
@@ -102,6 +104,7 @@ export class CashBalanceService {
     expenseName: string,
     amount: number,
   ): Promise<number> {
+    console.log(`onExpensePayment: expenseName=${expenseName}, amount=${amount}`);
     return this.subtractFromBalance(amount, `Expense: ${expenseName}`);
   }
 

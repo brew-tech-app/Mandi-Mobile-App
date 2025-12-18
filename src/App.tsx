@@ -13,6 +13,33 @@ const App: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Suppress noisy deprecation warnings while preserving other console output.
+  // This wraps console.warn at app startup and filters messages that mention 'deprecated'
+  // or 'DeprecationWarning'. Keep implementation minimal and reversible.
+  useEffect(() => {
+    const originalWarn = console.warn.bind(console);
+    console.warn = (...args: any[]) => {
+      try {
+        const first = args && args.length > 0 ? String(args[0]) : '';
+        if (first && /deprecated|DeprecationWarning/i.test(first)) {
+          // Optionally route to debug logger instead of showing in console
+          // console.debug('[deprecated suppressed]', first);
+          return;
+        }
+      } catch (e) {
+        // If filtering fails, fall back to original warn
+        originalWarn(...args);
+        return;
+      }
+      originalWarn(...args);
+    };
+
+    return () => {
+      // Restore original console.warn on unmount
+      console.warn = originalWarn;
+    };
+  }, []);
+
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | null = null;
 

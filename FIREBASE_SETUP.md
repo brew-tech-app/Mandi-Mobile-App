@@ -45,12 +45,18 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Users can only access their own data
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      
-      // Nested transactions collection
-      match /transactions/{transactionId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
+
+        // Nested transactions collection
+        match /transactions/{transactionId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        // Nested meta collection (user-level metadata like cash balance)
+        // The app listens to `users/{userId}/meta/state` so make sure rules allow it.
+        match /meta/{metaDoc} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
     }
   }
 }
